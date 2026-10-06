@@ -1,5 +1,5 @@
 /**
- * Memória endereçável por byte, esparsa e little-endian: um Map<bigint, number> (endereço -> byte) ou uma
+ * Memória endereçável por byte, esparsa e little endian: um Map<bigint, number> (endereço -> byte) ou uma
  * PagedMemory com a mesma interface. Posições nunca escritas valem zero.
  */
 import { signed, unsigned, f32ToBits, bitsToF32, f64ToBits, bitsToF64 } from './bits.js';

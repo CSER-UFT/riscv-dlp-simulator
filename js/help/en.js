@@ -30,7 +30,7 @@ export default {
             html: `
 <dl>
     <dt>Header</dt>
-    <dd><strong>New simulation</strong> opens the editor. With a simulation open, <strong>Edit</strong>, <strong>Compare</strong>, <strong>Exercise</strong>, <strong>Export</strong> and <strong>Copy link</strong> appear; they are described in <a href="#h-classroom">Classroom tools</a>. On the right are the language, the contrast button (light or dark theme) and this help.</dd>
+    <dd><strong>New simulation</strong> opens the editor, and <strong>Compare models</strong> opens the comparison of the same workload on the three models. With a simulation open, <strong>Edit</strong>, <strong>Compare</strong>, <strong>Exercise</strong>, <strong>Export</strong> and <strong>Copy link</strong> appear; they are described in <a href="#h-classroom">Classroom tools</a>. On the right are the language, the contrast button (light or dark theme) and this help.</dd>
     <dt>Tabs</dt>
     <dd>Each simulation, exercise or comparison opens in a tab. The name shows the example (or the first instruction), the model and the number of lanes. Close it with <strong>×</strong>.</dd>
     <dt>Diagram</dt>
@@ -86,12 +86,15 @@ export default {
     <tr><th>Term</th><th>Meaning</th></tr>
     <tr><td><strong>VLEN</strong></td><td>size of each vector register, set by the hardware (simulator configuration)</td></tr>
     <tr><td><strong>SEW</strong></td><td>width of each element, chosen by <code>vsetvli</code> (<code>e8</code>, <code>e16</code>, <code>e32</code> or <code>e64</code>)</td></tr>
-    <tr><td><strong>VLMAX</strong></td><td>how many elements fit in a register: VLEN ÷ SEW (with LMUL = 1)</td></tr>
+    <tr><td><strong>VLMAX</strong></td><td>how many elements fit in a register group: VLEN × LMUL ÷ SEW</td></tr>
+    <tr><td><strong>LMUL</strong></td><td>how many registers form each operand (1, 2, 4 or 8): with LMUL = 4, <code>v8</code> means the group v8 to v11</td></tr>
     <tr><td><strong>vl</strong></td><td>how many elements the next instructions process (from 0 to VLMAX)</td></tr>
     <tr><td><strong>vtype</strong></td><td>the current vector type: SEW, LMUL and the tail and mask policies</td></tr>
 </table>
 <h3>vsetvli and strip mining</h3>
 <p><code>vsetvli rd, rs1, e32, m1, ta, ma</code> asks to process <code>rs1</code> elements of 32 bits; the hardware answers in <code>rd</code> how many it will process now: vl = min(rs1, VLMAX). The program processes that block, advances the pointers and repeats until done. This loop is <strong>strip mining</strong>, and the same code works with any VLEN: with a larger VLEN, the loop just takes fewer trips. See the <em>SAXPY with strip mining</em> example.</p>
+<h3>Register groups (LMUL)</h3>
+<p>With <code>m2</code>, <code>m4</code> or <code>m8</code> in <code>vsetvli</code>, each vector operand becomes a group of 2, 4 or 8 consecutive registers, and the register number must be a multiple of LMUL. VLMAX grows in the same proportion, so the strip mining loop takes fewer trips and the program issues fewer instructions, at the cost of fewer available groups (32 ÷ LMUL). Masks stay in <code>v0</code>, a single register. In the diagram, each register of the group shows its share of the elements. See the <em>SAXPY with LMUL = 4</em> example.</p>
 <p><code>vsetivli</code> does the same with a constant (0 to 31). With <code>rs1 = zero</code> and a nonzero <code>rd</code>, <code>vsetvli</code> sets vl = VLMAX.</p>
 <h3>Masks</h3>
 <p>A vector comparison (<code>vmslt</code>, <code>vmfeq</code>...) produces a <strong>mask</strong>: one bit per element. Most instructions accept the <code>v0.t</code> suffix, which restricts the operation to elements whose bit in <code>v0</code> is 1; the others are left unchanged. This is how an <code>if</code> inside a loop becomes vector code (example <em>Mask: conditional ReLU</em>).</p>
@@ -167,16 +170,20 @@ export default {
             html: `
 <p>A GPU runs the same program (the <strong>kernel</strong>) on thousands of threads. Threads are grouped into <strong>warps</strong> that share fetch and decode: for each issued instruction, every active thread of the warp executes it, each with its own registers. This is the <strong>SIMT</strong> model (<em>single instruction, multiple threads</em>). This simulator models a single multiprocessor (SM) with a configurable number of warps (4 of 8 threads by default), in the style of Hennessy and Patterson and of the GPGPU-Sim simulator, scaled down to fit on screen.</p>
 <h3>The kernel</h3>
-<p>The kernel is an ordinary RISC-V program, run by every thread, with five extra instructions:</p>
+<p>The kernel is an ordinary RISC-V program, run by every thread, with these extra instructions:</p>
 <table>
     <tr><th>Instruction</th><th>Effect</th></tr>
-    <tr><td><code>gpu.tid rd</code></td><td>global thread index: warp × warp size + position in the warp</td></tr>
-    <tr><td><code>gpu.ntid rd</code></td><td>total number of threads</td></tr>
-    <tr><td><code>gpu.wid rd</code></td><td>warp index</td></tr>
+    <tr><td><code>gpu.tid rd</code></td><td>global thread index: block × threads per block + index in the block</td></tr>
+    <tr><td><code>gpu.ntid rd</code></td><td>total number of threads in the grid</td></tr>
+    <tr><td><code>gpu.bid rd</code>, <code>gpu.nbid rd</code></td><td>block index and number of blocks</td></tr>
+    <tr><td><code>gpu.btid rd</code>, <code>gpu.bdim rd</code></td><td>thread index within the block and threads per block</td></tr>
+    <tr><td><code>gpu.wid rd</code></td><td>warp index within the block</td></tr>
     <tr><td><code>gpu.lane rd</code></td><td>position of the thread in the warp</td></tr>
-    <tr><td><code>gpu.bar</code></td><td>barrier: the warp waits until every warp still running arrives</td></tr>
+    <tr><td><code>gpu.bar</code></td><td>barrier: the warp waits until every warp of its block still running arrives</td></tr>
 </table>
-<p>Each thread has its own registers (with its own stack in <code>sp</code>), and memory is shared. A thread finishes at <code>ecall</code> or when it runs past the end of the code. The pattern used in the examples is the loop with a stride equal to the number of threads: thread i processes elements i, i + ntid, i + 2 × ntid..., which works with any number of warps.</p>
+<p>Each thread has its own registers (with its own stack in <code>sp</code>), and global memory (the <code>.data</code> section) is seen by all of them. A thread finishes at <code>ecall</code> or when it runs past the end of the code. The pattern used in the examples is the loop with a stride equal to the number of threads: thread i processes elements i, i + ntid, i + 2 × ntid..., which works with any number of warps and blocks. The grid has at most 1024 threads.</p>
+<h3>Blocks and occupancy</h3>
+<p>The kernel is launched on a <strong>grid</strong> of blocks, each with the configured number of warps. The SM takes at once as many blocks as fit in two limits: the maximum number of resident warps and the shared memory (the size of each block's <code>.shared</code> section against the SM's shared memory). This is <strong>occupancy</strong>: with more resident blocks, there are more warps to hide latency. When a block finishes, the next one in the grid takes its place in the following cycle. The blocks panel shows which are pending, on the SM or finished, and which limit applies.</p>
 <h3>Scheduling and latency hiding</h3>
 <p>Each cycle, the <strong>scheduler</strong> picks a ready warp and issues its next instruction. A warp is not ready if it finished, is at a barrier, waits for a branch to resolve, reads or writes a register with a pending write (each warp's <em>scoreboard</em>) or needs a busy unit. Round robin starts from the warp after the last one issued; greedy then oldest (<em>GTO</em>) repeats the same warp while it is ready and otherwise picks the lowest index.</p>
 <p>A load takes the memory latency (20 cycles by default). With a single warp the SM sits waiting; with several, the scheduler issues instructions from other warps while the first one waits. This is how GPUs <strong>hide latency</strong>: instead of large caches and out of order execution, many threads ready to switch in. In the <em>GPU: SAXPY</em> example, compare 1 warp with 4 warps.</p>
@@ -187,11 +194,17 @@ export default {
 <p>Divergence costs performance, because inactive threads take ways without working: <strong>SIMD efficiency</strong> in the statistics is the average fraction of active threads. In the <em>GPU: divergence</em> example, even and odd threads split in every warp; with the condition i &lt; 16, each whole warp takes the same path.</p>
 <h3>Coalescing</h3>
 <p>In a load or store, the GPU merges the active threads' addresses into memory <strong>transactions</strong> the size of a line (32 bytes by default). Neighboring threads reading neighboring words make one transaction per warp; scattered accesses make one per thread. The LSU sends one transaction per cycle. The coalescing panel shows each thread's address in the last access, colored by line. See the <em>GPU: coalescing</em> example.</p>
+<h3>L1 cache</h3>
+<p>With the L1 cache on (off by default), lines read from global memory are kept in a set associative cache with LRU replacement. A load whose lines are all in the L1 takes the L1 latency instead of the memory latency; stores write straight to memory without allocating lines. The L1 only affects timing, never the values, and the statistics show hits and misses.</p>
+<h3>Shared memory and bank conflicts</h3>
+<p>Data declared in the <code>.shared</code> section (only with <code>.space</code> and <code>.align</code>, starting at <code>0x80000</code>) forms the <strong>shared memory</strong>: one copy per block, zeroed at launch, fast (its own latency, 2 cycles by default) and seen only by the block's threads. It is split into 4 byte <strong>banks</strong>: the word at address a lives in bank (a ÷ 4) mod number of banks. Threads accessing different words of the same bank are served one at a time (a <strong>bank conflict</strong>); threads reading the same word get the value together. The conflict degree, the largest number of different words in one bank, multiplies the LSU occupancy. See the examples <em>GPU: bank conflicts</em> and <em>GPU: reduction in shared memory</em>, and the GEMM with shared memory in the model comparison.</p>
 <h3>The diagram</h3>
 <dl>
     <dt>Scheduler and units</dt><dd>The warp and instruction issued in the cycle, and the instructions taking each unit.</dd>
     <dt>Warps</dt><dd>For each warp: the next instruction, the active thread mask, the status (ready, issued, waiting for a register, a unit, a branch or the barrier, finished) and the SIMT stack.</dd>
-    <dt>Thread registers</dt><dd>One column per thread, grouped by warp, with the registers used by the kernel; writes in the step are highlighted.</dd>
+    <dt>Blocks</dt><dd>The state of each block in the grid and the occupancy limit.</dd>
+    <dt>Memory access</dt><dd>The last load or store: in global memory, each thread's address colored by line (with L1 hit or miss); in shared memory, colored by bank, with the conflict degree.</dd>
+    <dt>Thread registers</dt><dd>One column per thread, grouped by warp, with the registers used by the kernel; writes in the step are highlighted. With many threads, it shows the first resident warps.</dd>
 </dl>
 <p>In the timeline, each row is an instruction of one warp (the name starts with the warp, for example <code>w2:</code>), and the exercise asks for the issue and completion cycles.</p>`,
         },
@@ -244,8 +257,12 @@ export default {
     <dd>How many warps the SM runs and how many threads each has, how many threads each unit processes per cycle and the scheduler policy. See <a href="#h-gpu">The GPU</a>.</dd>
     <dt>GPU: memory latency and transaction size</dt>
     <dd>Cycles of a memory transaction and the line size used for coalescing.</dd>
+    <dt>GPU: grid and SM memory</dt>
+    <dd>Number of blocks in the grid, maximum resident warps on the SM, bytes of shared memory on the SM, number of banks and shared memory latency, and the L1 cache (on or off, size, associativity and latency). See <a href="#h-gpu">The GPU</a>.</dd>
     <dt>TPU: array size, buffer and accumulator rows, tiles in the weight queue</dt>
     <dd>The size N of the systolic array (2 to 16), how many rows the Unified Buffer and the accumulators have and how many weight tiles fit in the queue. See <a href="#h-tpu">The TPU</a>.</dd>
+    <dt>TPU: data type and requantization shift</dt>
+    <dd>int32 (default) or int8 as in TPU v1; in int8, how many bits the activation shifts right before saturating to 8 bits.</dd>
     <dt>TPU: memory and activation latencies</dt>
     <dd>Cycles between reading a row and writing it to its destination, in the DMA and WDMA units and in the activation. The array latency is always 2N minus 1.</dd>
     <dt>XLEN</dt>
@@ -281,7 +298,7 @@ export default {
 <h3>Scalar</h3>
 <p>RV32I and RV64I, the M, F and D extensions, the usual pseudoinstructions (<code>li</code>, <code>la</code>, <code>mv</code>, <code>j</code>, <code>beqz</code>, <code>bnez</code>, <code>ret</code>...), labels, ABI register names, the <code>.text</code> and <code>.data</code> sections and the <code>.byte</code>, <code>.half</code>, <code>.word</code>, <code>.dword</code>, <code>.float</code>, <code>.double</code>, <code>.space</code>, <code>.align</code>, <code>.string</code> and <code>.equ</code> directives. Code starts at <code>0x0</code> and data at <code>0x10000</code>.</p>
 <p>Initial values of scalar registers can be given in comments alone on their line: <code># a0 = 10</code>, <code># fa0 = 2.5</code>. Vector registers get data through <code>.data</code> and loads.</p>
-<h3>Vector (LMUL = 1)</h3>
+<h3>Vector (LMUL = 1, 2, 4 or 8)</h3>
 <table>
     <tr><th>Group</th><th>Instructions</th></tr>
     <tr><td>Configuration</td><td><code>vsetvli</code>, <code>vsetivli</code></td></tr>
@@ -306,7 +323,9 @@ export default {
             html: `
 <dl>
     <dt>Exercise</dt>
-    <dd>Opens the simulation as an exercise: for each executed vector instruction, the student enters the issue cycle, the cycle of the first result and the completion cycle, and the simulator grades them. It also exports the blank table and the answer key in LaTeX.</dd>
+    <dd>Opens the simulation as an exercise: for each executed instruction (vector, TPU or warp), the student enters the cycles of the events and the simulator grades them. Below the table come questions specific to the model, drawn from the run: in the GPU, transactions of an access, bank conflict degree, mask after a branch, reconvergence point and resident blocks; in the TPU, MACs, the cycle the weights enter, completion and array use; in the vector processor, vl and lane groups. The table and the questions are also exported in LaTeX, blank or with the answer key.</dd>
+    <dt>Compare models</dt>
+    <dd>Runs SAXPY and an 8 × 8 GEMM written for the vector processor, for the GPU (with and without shared memory) and for the TPU, on the same data, and shows cycles, time, instructions, useful operations per cycle and each model's efficiency. Each version can be opened to see the run and change the configuration.</dd>
     <dt>Compare</dt>
     <dd>Runs the same program with another configuration (for example, without chaining, or with 8 lanes) and shows the speedup, the statistics, the configuration differences and both timelines side by side.</dd>
     <dt>Export</dt>
@@ -359,13 +378,13 @@ export default {
             title: 'Simplifications',
             html: `
 <ul>
-    <li>Only LMUL = 1, and the width of memory accesses must equal SEW (there are no widening or narrowing instructions).</li>
+    <li>Integer LMUL (1, 2, 4 or 8), without fractions, and the width of memory accesses must equal SEW (there are no widening or narrowing instructions).</li>
     <li>Inactive and tail elements are always preserved.</li>
     <li>Memory has a fixed latency (that of the load and store classes), without caches or bank conflicts; strided and indexed accesses deliver a fixed number of elements per cycle.</li>
     <li>Issue stops at the first instruction that cannot start; there are no instruction queues for the vector units.</li>
     <li>There is no branch prediction: taken branches cost a fixed number of bubbles.</li>
     <li>There is no limit on vector register file ports.</li>
-    <li>GPU: a single SM, without shared memory or caches; memory serves one transaction per cycle with a fixed latency; divergent indirect jumps are not accepted; the final state is checked against running the threads one after the other, which holds for race free programs.</li>
+    <li>GPU: a single SM and at most 1024 threads; global memory serves one transaction per cycle with a fixed latency (or the L1 one on a hit); shared memory has no copies between blocks nor atomic operations; divergent indirect jumps are not accepted; the final state is checked against running the threads one after the other, which holds for race free programs.</li>
     <li>TPU: 32 or 8 bit integers (no floating point nor per channel scales), a single activation per instruction (ReLU or none) and weights read from the same memory as the data.</li>
     <li>Values are computed when the instruction reaches issue, in program order; the displayed state changes in the cycles in which each element is written. The final state is checked against a functional reference simulator.</li>
 </ul>`,

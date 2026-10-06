@@ -8,9 +8,9 @@ O simulador roda inteiramente no navegador (HTML e JavaScript, sem dependências
 
 ## Modelos
 
-* **Processador vetorial**: um núcleo escalar em ordem acoplado a uma unidade vetorial com lanes, no estilo do RV64V de Hennessy e Patterson, executando a extensão V do RISC-V (RVV 1.0, LMUL = 1).
+* **Processador vetorial**: um núcleo escalar em ordem acoplado a uma unidade vetorial com lanes, no estilo do RV64V de Hennessy e Patterson, executando a extensão V do RISC-V (RVV 1.0, com LMUL 1, 2, 4 ou 8).
 * **TPU**: um núcleo RISC-V escalar comandando uma unidade de multiplicação de matrizes com array sistólico N × N (pesos parados), Unified Buffer, fila de pesos, acumuladores e ativação, no estilo da TPU v1 do Google.
-* **GPU**: um multiprocessador SIMT com warps, escalonador (rodízio ou GTO), scoreboard por warp, divergência com pilha SIMT e reconvergência no pós dominador imediato, barreira e coalescência dos acessos à memória.
+* **GPU**: um multiprocessador SIMT com grade de blocos e ocupação, warps, escalonador (rodízio ou GTO), scoreboard por warp, divergência com pilha SIMT e reconvergência no pós dominador imediato, barreira, coalescência dos acessos à memória, memória compartilhada com conflitos de banco e cache L1 opcional.
 
 ## Processador vetorial
 
@@ -24,7 +24,7 @@ O simulador roda inteiramente no navegador (HTML e JavaScript, sem dependências
 * **Escalar**: RV32I e RV64I, extensões M, F e D, pseudoinstruções usuais, rótulos, nomes da ABI, seções `.text` e `.data` e as diretivas de dados. Valores iniciais de registradores escalares em comentários sozinhos na linha: `# a0 = 10`.
 * **Vetorial**: `vsetvli` e `vsetivli` (e8, e16, e32 e e64); loads e stores unitários, com passo e indexados; aritmética inteira e de ponto flutuante nas formas `.vv`, `.vx`, `.vf` e `.vi`; multiplicação e soma (`vmacc`, `vfmacc`...); comparações e operações com máscara (`v0.t`); reduções; movimentação entre escalar e vetor; `vmerge`, `vid.v`, `vcpop.m`, `vfirst.m` e pseudoinstruções como `vneg.v` e `vmnot.m`.
 
-Simplificações: apenas LMUL = 1, com a largura dos acessos à memória igual ao SEW; cauda e elementos inativos sempre preservados; memória com latência fixa.
+Simplificações: LMUL inteiro (sem frações), com a largura dos acessos à memória igual ao SEW; cauda e elementos inativos sempre preservados; memória com latência fixa.
 
 ## TPU
 
@@ -35,23 +35,26 @@ Simplificações: apenas LMUL = 1, com a largura dos acessos à memória igual a
 
 ## GPU
 
-* Kernel em RISC-V com `gpu.tid`, `gpu.ntid`, `gpu.wid`, `gpu.lane` e `gpu.bar`; cada thread com os seus registradores.
-* Número de warps, threads por warp, vias por unidade, escalonador, latência da memória e tamanho das transações configuráveis.
+* Kernel em RISC-V com `gpu.tid`, `gpu.ntid`, `gpu.bid`, `gpu.nbid`, `gpu.btid`, `gpu.bdim`, `gpu.wid`, `gpu.lane` e `gpu.bar`; cada thread com os seus registradores.
+* Grade de blocos com até 1024 threads; o SM recebe quantos blocos couberem no limite de warps residentes e na memória compartilhada.
+* Memória compartilhada por bloco (seção `.shared`) dividida em bancos de 4 bytes, com serialização dos conflitos; cache L1 associativa por conjunto, com LRU, que só afeta o tempo.
+* Número de blocos e de warps, threads por warp, vias por unidade, escalonador, latência da memória, tamanho das transações, warps residentes, memória compartilhada, bancos e L1 configuráveis.
 * Diagrama com o warp emitido, a máscara de threads ativas e a pilha SIMT de cada warp, a ocupação das unidades, a coalescência do último acesso (endereço de cada thread colorido pela linha) e os registradores de todas as threads; estatísticas de eficiência SIMD, transações por acesso e ciclos sem emissão.
 
-Exemplos: SAXPY (ocultação de latência com mais warps), divergência, coalescência e redução em árvore com barreira.
+Exemplos da GPU: SAXPY (ocultação de latência com mais warps), divergência, coalescência, redução em árvore na memória compartilhada com barreira e conflitos de banco.
 
 Exemplos da TPU: C = ReLU(A × B), lote de 12 linhas, lote pequeno limitado pelos pesos, K maior que o array (acumulação), rede de duas camadas, camada int8 quantizada e convolução 2D por im2col.
 
 ## Recursos para aula
 
 * **Passo a passo** com uma explicação de cada acontecimento e **linha do tempo** por instrução.
-* **Exercício**: o aluno preenche o ciclo de emissão, do primeiro resultado e de conclusão de cada instrução vetorial, e o simulador corrige.
+* **Exercício**: o aluno preenche os ciclos dos eventos de cada instrução e responde perguntas próprias do modelo (transações, conflitos de banco, máscaras e reconvergência na GPU; MACs e ciclos dos pesos na TPU; vl e grupos nas lanes no processador vetorial), e o simulador corrige.
+* **Comparar modelos**: SAXPY e GEMM 8 × 8 escritas para o processador vetorial, a GPU (com e sem memória compartilhada) e a TPU, com ciclos, tempo, operações úteis por ciclo e eficiência lado a lado.
 * **Comparar**: o mesmo programa com outra configuração (por exemplo, sem encadeamento ou com mais lanes), com speedup, estatísticas e linhas do tempo lado a lado.
 * **Exportar** linha do tempo e tabela de eventos em CSV e em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), e o estado do ciclo atual em LaTeX com figuras TikZ: lanes e estágios das unidades vetoriais, array sistólico da TPU, warps com a pilha SIMT e coalescência ou bancos da GPU.
 * **Copiar link** que abre a mesma simulação, comparação ou exercício.
 
-Exemplos prontos: SAXPY com strip mining e a versão escalar, encadeamento, lanes, produto escalar com redução, máscara, acesso com passo, acesso indexado e matriz vezes vetor.
+Exemplos prontos: SAXPY com strip mining, com LMUL = 4 e a versão escalar, encadeamento, lanes, produto escalar com redução, máscara, acesso com passo, acesso indexado e matriz vezes vetor.
 
 ## Como utilizar
 
