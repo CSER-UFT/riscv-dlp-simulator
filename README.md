@@ -2,7 +2,7 @@
 
 **Acesse:** [cser-uft.github.io/riscv-dlp-simulator](https://cser-uft.github.io/riscv-dlp-simulator/)
 
-Simulador didático de arquiteturas que exploram o paralelismo em nível de dados (DLP, *data level parallelism*): processador vetorial, GPU e TPU, desenvolvido para o curso de **Ciência da Computação** da **Universidade Federal do Tocantins**. É o projeto irmão do [Simulador de Processadores RISC-V](https://github.com/CSER-UFT/riscv-simulator), do qual reaproveita o montador, a interface e as ferramentas para aula.
+Simulador didático de arquiteturas que exploram o paralelismo em nível de dados (DLP, *data level parallelism*): processador vetorial, GPU e TPU, desenvolvido para o curso de **Ciência da Computação** da **Universidade Federal do Tocantins**. É o projeto irmão do [Simulador de Processadores RISC-V](https://github.com/CSER-UFT/riscv-cpu-simulator), do qual reaproveita o montador, a interface e as ferramentas para aula.
 
 O simulador roda inteiramente no navegador (HTML e JavaScript, sem dependências nem etapa de compilação) e pode ser publicado diretamente no GitHub Pages. A interface está em português e em inglês, com tema claro e tema escuro.
 
