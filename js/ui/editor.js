@@ -120,7 +120,12 @@ export class Editor {
         if (ex.config) {
             const cur = this.readConfig();
             const merged = { ...cur, ...ex.config };
-            for (const k of ['vector', 'tpu', 'gpu']) if (ex.config[k]) merged[k] = { ...cur[k], ...ex.config[k] };
+            // A seção do modelo do exemplo volta ao padrão antes dos ajustes do exemplo, para que ajustes de
+            // outro exemplo (por exemplo, o número de blocos) não fiquem para trás.
+            for (const k of ['vector', 'tpu', 'gpu']) {
+                if (k === ex.config.mode) merged[k] = { ...clone(DEFAULT_CONFIG[k]), ...(ex.config[k] ?? {}) };
+                else if (ex.config[k]) merged[k] = { ...cur[k], ...ex.config[k] };
+            }
             this.setConfig(merged);
         }
         this.showErrors([]);
@@ -201,7 +206,7 @@ export class Editor {
                 ${num('lanes', c.vector.lanes, 1, 64, t('ed.lanes'), 'vec-only')}
                 ${check('chaining', c.vector.chaining, t('ed.chaining'), 'vec-only')}
                 ${num('stridedRate', c.vector.stridedRate, 1, 64, t('ed.stridedRate'), 'vec-only')}
-                ${num('gpuWarps', c.gpu.warps, 1, 16, t('ed.gpuWarps'), 'gpu-only')}
+                ${num('gpuWarps', c.gpu.warps, 1, 16, t('ed.gpuWarpsBlock'), 'gpu-only')}
                 ${num('gpuWarpSize', c.gpu.warpSize, 1, 32, t('ed.gpuWarpSize'), 'gpu-only')}
                 ${num('gpuLanes', c.gpu.lanes, 1, 32, t('ed.gpuLanes'), 'gpu-only')}
                 <label class="field gpu-only">${t('ed.gpuScheduler')}<select name="gpuScheduler">${opt([['rr', t('ui.gpu.policy.rr')], ['gto', t('ui.gpu.policy.gto')]], c.gpu.scheduler)}</select></label>
@@ -214,6 +219,18 @@ export class Editor {
                 ${num('tpuMem', c.tpu.memLatency, 1, 100, t('ed.tpuMem'), 'tpu-only')}
                 ${num('tpuAct', c.tpu.actLatency, 1, 20, t('ed.tpuAct'), 'tpu-only')}
                 ${num('branchPenalty', c.branchPenalty, 0, 20, t('ed.branchPenalty'), 'not-gpu')}
+            </fieldset>
+            <fieldset class="gpu-only"><legend>${t('ed.gpuGrid')}</legend>
+                ${num('gpuBlocks', c.gpu.blocks, 1, 256, t('ed.gpuBlocks'))}
+                ${num('gpuMaxWarps', c.gpu.maxWarps, 1, 64, t('ed.gpuMaxWarps'))}
+                ${num('gpuSmem', c.gpu.smemBytes, 0, 65536, t('ed.gpuSmem'))}
+                <label class="field">${t('ed.gpuBanks')}<select name="gpuBanks">${opt([1, 2, 4, 8, 16, 32].map((b) => [b, b]), c.gpu.smemBanks)}</select></label>
+                ${num('gpuSmemLat', c.gpu.smemLatency, 1, 100, t('ed.gpuSmemLat'))}
+                ${check('gpuL1', c.gpu.l1, t('ed.gpuL1'))}
+                <label class="field">${t('ed.gpuL1Bytes')}<select name="gpuL1Bytes">${opt([64, 128, 256, 512, 1024, 2048, 4096].map((b) => [b, `${b} B`]), c.gpu.l1Bytes)}</select></label>
+                <label class="field">${t('ed.gpuL1Ways')}<select name="gpuL1Ways">${opt([1, 2, 4, 8].map((b) => [b, b]), c.gpu.l1Ways)}</select></label>
+                ${num('gpuL1Lat', c.gpu.l1Latency, 1, 100, t('ed.gpuL1Lat'))}
+                <p class="note">${t('ed.gpuGridHelp')}</p>
             </fieldset>
             <fieldset class="vec-only"><legend>${t('ed.units')}</legend>
                 <table class="groups"><tr><th>${t('ed.unit')}</th><th>${t('ed.classes')}</th><th>${t('ed.pipelined')}</th><th></th></tr>${units}</table>
@@ -286,7 +303,9 @@ export class Editor {
             },
             gpu: {
                 warps: n('gpuWarps'), warpSize: n('gpuWarpSize'), lanes: n('gpuLanes'), scheduler: get('gpuScheduler').value,
-                memLatency: n('gpuMem'), lineBytes: n('gpuLine'),
+                memLatency: n('gpuMem'), lineBytes: n('gpuLine'), blocks: n('gpuBlocks'), maxWarps: n('gpuMaxWarps'),
+                smemBytes: n('gpuSmem'), smemBanks: n('gpuBanks'), smemLatency: n('gpuSmemLat'), l1: get('gpuL1').checked,
+                l1Bytes: n('gpuL1Bytes'), l1Ways: n('gpuL1Ways'), l1Latency: n('gpuL1Lat'),
             },
             tpu: {
                 n: n('tpuN'), ubRows: n('tpuUb'), accRows: n('tpuAcc'), fifoDepth: n('tpuFifo'),

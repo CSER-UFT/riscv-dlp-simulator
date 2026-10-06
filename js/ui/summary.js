@@ -9,10 +9,13 @@ export function configSummary(cfg) {
         const g = cfg.gpu;
         return [
             t('mode.gpu'), `RV${cfg.xlen}`,
-            t('summary.gpuWarps', { w: g.warps, s: g.warpSize, n: g.warps * g.warpSize }),
+            g.blocks > 1 ? t('summary.gpuBlocks', { b: g.blocks, w: g.warps, s: g.warpSize, n: g.blocks * g.warps * g.warpSize })
+                : t('summary.gpuWarps', { w: g.warps, s: g.warpSize, n: g.warps * g.warpSize }),
             t('summary.gpuLanes', { lanes: g.lanes, g: Math.ceil(g.warpSize / g.lanes) }),
             t(`ui.gpu.policy.${g.scheduler}`),
             t('summary.gpuMem', { lat: g.memLatency, b: g.lineBytes }),
+            t('summary.gpuSm', { mw: g.maxWarps, smem: g.smemBytes, banks: g.smemBanks, lat: g.smemLatency }),
+            ...(g.l1 ? [t('summary.gpuL1', { b: g.l1Bytes, w: g.l1Ways, lat: g.l1Latency })] : []),
             `${t('summary.scalarLat')}: ${SCALAR_LATENCY_IDS.map((k) => `${className(k)} ${cfg.latency[k]}`).join(', ')}`,
             t('summary.clock', { f: cfg.freqGHz }),
         ];

@@ -24,9 +24,12 @@ export class Recorder {
      * @param {boolean} trace guardar instantâneos (desligado nos testes, por desempenho)
      * @param {() => object} getState retorna os componentes do estado atual
      * @param {() => Map} getMem retorna a memória atual
+     * @param {string[]} immutable componentes que o motor nunca altera no lugar (substitui por cópias); são
+     *   guardados por referência, sem serialização, o que importa quando são grandes (threads da GPU)
      */
-    constructor(trace, getState, getMem) {
+    constructor(trace, getState, getMem, immutable = []) {
         this.trace = trace;
+        this.immutable = new Set(immutable);
         this.getState = getState;
         this.getMem = getMem;
         this.states = [];
@@ -51,7 +54,9 @@ export class Recorder {
         const state = this.getState();
         const snap = { seq: this.seq, focus, mem: this.getMem() };
         for (const [k, v] of Object.entries(state)) {
-            if (Array.isArray(v) && v.some((x) => typeof x === 'object' && x !== null)) {
+            if (this.immutable.has(k)) {
+                snap[k] = v;
+            } else if (Array.isArray(v) && v.some((x) => typeof x === 'object' && x !== null)) {
                 snap[k] = v.map((item, i) => this.share(`${k}.${item?.name ?? i}`, item));
             } else if (k === 'rob' && v) {
                 snap[k] = { head: v.head, count: v.count, entries: v.entries.map((e, i) => this.share(`rob.${i}`, e)) };

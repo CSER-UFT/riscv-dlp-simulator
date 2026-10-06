@@ -5,7 +5,7 @@
  *   instruções reais descritas em isa.js e as pseudoinstruções usuais (li, la, mv, j, call, ret, beqz, ...);
  *   rótulos (labels), nomes de registradores numéricos e da ABI;
  *   imediatos decimais, hexadecimais (0x), binários (0b), caracteres ('a'), símbolos, sym+N, %hi(sym) e %lo(sym);
- *   seções .text e .data, com as diretivas .byte, .half, .word, .dword, .float, .double, .space, .zero,
+ *   seções .text, .data e .shared (memória compartilhada de cada bloco da GPU, só com .space e .align), com as diretivas .byte, .half, .word, .dword, .float, .double, .space, .zero,
  *   .align, .balign, .string, .asciz, .ascii, .equ e .set;
  *   valores iniciais de registradores em comentários no formato "# reg = valor";
  *   instruções vetoriais (extensão V, LMUL = 1), com máscara opcional "v0.t" e o tipo de vsetvli
@@ -24,6 +24,9 @@ import { t } from '../i18n/index.js';
 export const TEXT_BASE = 0x0;
 export const DATA_BASE = 0x10000;
 export const STACK_TOP = 0x7fff0;
+/** Início da memória compartilhada (seção .shared), separada para cada bloco de threads da GPU. */
+export const SHARED_BASE = 0x80000;
+export const SHARED_MAX = 0x10000;
 
 const ROUNDING_MODES = new Set(['rne', 'rtz', 'rdn', 'rup', 'rmm', 'dyn']);
 
@@ -114,6 +117,7 @@ export function assemble(source, { xlen = 32 } = {}) {
     const init = { x: new Map(), f: new Map() };
     const data = new Map();
     const dataLabels = [];
+    const sharedLabels = [];
     const textItems = [];
     const dataFixups = [];
     const lines = source.split(/\r?\n/);
@@ -121,6 +125,7 @@ export function assemble(source, { xlen = 32 } = {}) {
     let section = 'text';
     let pc = TEXT_BASE;
     let dp = DATA_BASE;
+    let shp = SHARED_BASE;
     let pendingLabels = [];
 
     const report = (lineNo, msg) => errors.push({ line: lineNo, message: msg });
@@ -133,9 +138,13 @@ export function assemble(source, { xlen = 32 } = {}) {
                 symbols.set(name, { value: BigInt(addr), kind: 'label', section });
             if (section === 'data')
                 dataLabels.push({ name, addr: BigInt(addr) });
+            if (section === 'shared')
+                sharedLabels.push({ name, addr: BigInt(addr) });
         }
         pendingLabels = [];
     };
+
+    const here = () => (section === 'text' ? pc : section === 'shared' ? shp : dp);
 
     const alignData = (n) => {
         if (dp % n !== 0)
@@ -328,11 +337,14 @@ export function assemble(source, { xlen = 32 } = {}) {
             report(lineNo, e.message);
         }
     }
-    placeLabels(section === 'text' ? pc : dp);
+    placeLabels(here());
 
     function handleDirective(dir, rest, lineNo) {
         const args = splitList(rest);
-        const dataOnly = () => { if (section !== 'data') fail(t('asm.dataOnly', { dir })); };
+        const dataOnly = () => {
+            if (section === 'shared') fail(t('asm.sharedNoInit', { dir }));
+            if (section !== 'data') fail(t('asm.dataOnly', { dir }));
+        };
         const emitInts = (size) => {
             dataOnly();
             alignData(size);
@@ -345,11 +357,12 @@ export function assemble(source, { xlen = 32 } = {}) {
             }
         };
         switch (dir) {
-            case '.text': placeLabels(section === 'text' ? pc : dp); section = 'text'; return;
-            case '.data': case '.rodata': case '.bss': case '.sdata': placeLabels(section === 'text' ? pc : dp); section = 'data'; return;
+            case '.text': placeLabels(here()); section = 'text'; return;
+            case '.data': case '.rodata': case '.bss': case '.sdata': placeLabels(here()); section = 'data'; return;
+            case '.shared': placeLabels(here()); section = 'shared'; return;
             case '.section': {
-                placeLabels(section === 'text' ? pc : dp);
-                section = /text/.test(args[0] ?? '') ? 'text' : 'data';
+                placeLabels(here());
+                section = /text/.test(args[0] ?? '') ? 'text' : /shared/.test(args[0] ?? '') ? 'shared' : 'data';
                 return;
             }
             case '.globl': case '.global': case '.type': case '.size': case '.file': case '.ident': case '.option': case '.local':
@@ -377,6 +390,14 @@ export function assemble(source, { xlen = 32 } = {}) {
                 return;
             }
             case '.space': case '.zero': case '.skip': {
+                if (section === 'shared') {
+                    placeLabels(shp);
+                    const n = Number(evalImm(args[0] ?? ''));
+                    if (n < 0) fail(t('asm.negativeSize'));
+                    shp += n;
+                    if (shp - SHARED_BASE > SHARED_MAX) fail(t('asm.sharedTooBig', { max: SHARED_MAX }));
+                    return;
+                }
                 dataOnly();
                 placeLabels(dp);
                 const n = Number(evalImm(args[0] ?? ''));
@@ -389,6 +410,7 @@ export function assemble(source, { xlen = 32 } = {}) {
                 const n = Number(evalImm(args[0] ?? ''));
                 const bytes = dir === '.balign' ? n : 2 ** n;
                 if (section === 'data') alignData(bytes);
+                if (section === 'shared' && shp % bytes !== 0) shp += bytes - (shp % bytes);
                 return;
             }
             case '.string': case '.asciz': case '.ascii': {
@@ -710,5 +732,6 @@ export function assemble(source, { xlen = 32 } = {}) {
     for (const [name, s] of symbols)
         if (s.kind === 'label') labels.set(name, s.value);
 
-    return { instructions, labels, dataLabels, data, init, errors, xlen };
+    const shared = { base: BigInt(SHARED_BASE), size: shp - SHARED_BASE, labels: sharedLabels };
+    return { instructions, labels, dataLabels, data, init, errors, xlen, shared };
 }

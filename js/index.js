@@ -10,6 +10,8 @@ import { Timeline } from './ui/timeline.js';
 import { Viewport } from './ui/viewport.js';
 import { renderExercise } from './ui/exercise.js';
 import { renderCompare } from './ui/compare.js';
+import { renderModels } from './ui/models.js';
+import { exampleName } from './examples.js';
 import { timelineCsv, timelineLatex, eventsCsv, eventsLatex, download } from './ui/export.js';
 import { Help, MODEL_SECTION } from './ui/help.js';
 import { configDiff } from './ui/summary.js';
@@ -74,7 +76,9 @@ langSelect.addEventListener('change', () => {
     // As mensagens das simulações são geradas no idioma atual: simula de novo as abas abertas.
     for (const name of Object.keys(tabManager.tabContents)) {
         const c = tabManager.tabContents[name];
-        if (c.kind === 'compare') {
+        if (c.kind === 'models') {
+            c.state.rows = {};
+        } else if (c.kind === 'compare') {
             c.simA = runSilently(c.code, c.config);
             c.simB = runSilently(c.code, c.configB);
         } else {
@@ -115,7 +119,10 @@ function uniqueName(base) {
 /** Nome curto do modelo e da configuração principal, para os títulos das abas. */
 function shortName(sim) {
     if (sim.model === 'tpu') return t('ui.shortNameTpu', { model: t('mode.short.tpu'), n: sim.config.tpu.n });
-    if (sim.model === 'gpu') return t('ui.shortNameGpu', { model: t('mode.short.gpu'), w: sim.config.gpu.warps, s: sim.config.gpu.warpSize });
+    if (sim.model === 'gpu') {
+        const g = sim.config.gpu;
+        return t(g.blocks > 1 ? 'ui.shortNameGpuBlocks' : 'ui.shortNameGpu', { model: t('mode.short.gpu'), b: g.blocks, w: g.warps, s: g.warpSize });
+    }
     return t('ui.shortName', { model: t(`mode.short.${sim.model}`), lanes: sim.config.vector.lanes });
 }
 
@@ -144,6 +151,13 @@ function openCompare(code, config, configB, simA, simB) {
     });
 }
 
+function openModels() {
+    help.close();
+    const name = t('ui.models');
+    if (tabManager.contains(name)) return tabManager.setActive(name);
+    tabManager.add(name, { kind: 'models', state: { workload: 'gemm' } });
+}
+
 const editor = new Editor((code, config, name, purpose) => {
     const r = build(code, config);
     if (r.errors) return r.errors;
@@ -157,6 +171,7 @@ const editor = new Editor((code, config, name, purpose) => {
 });
 
 document.getElementById('open-novo').addEventListener('click', () => editor.show(null, null, 'new'));
+document.getElementById('open-modelos').addEventListener('click', () => openModels());
 buttons.edit.addEventListener('click', () => {
     const c = tabManager.currentContents();
     if (c) editor.show(c.code, c.kind === 'compare' ? c.configB : c.config, 'edit');
@@ -174,7 +189,7 @@ document.getElementById('open-ajuda').addEventListener('click', () => {
     const c = tabManager.currentContents();
     if (!c) return help.show(null);
     const model = c.sim?.model ?? c.simA?.model;
-    help.open(c.kind === 'exercise' ? 'classroom' : (c.kind === 'compare' ? 'classroom' : MODEL_SECTION[model]));
+    help.open(c.kind === 'models' ? 'models' : c.kind === 'exercise' || c.kind === 'compare' ? 'classroom' : MODEL_SECTION[model]);
 });
 
 for (const item of buttons.export.querySelectorAll('[data-export]')) {
@@ -222,6 +237,7 @@ buttons.link.addEventListener('click', async () => {
 // Exibição das abas ----------------------------------------------------------------------------------------
 
 function setButtons(kind) {
+    if (kind === 'models') kind = null;
     buttons.edit.classList.toggle('hidden', !kind);
     buttons.compare.classList.toggle('hidden', kind !== 'sim');
     buttons.exercise.classList.toggle('hidden', kind !== 'sim');
@@ -247,13 +263,18 @@ tabManager.addEventListener('tab-set', () => {
     if (!help.isOverlay()) readme.style.display = 'none';
     setButtons(c.kind);
 
-    if (c.kind === 'exercise' || c.kind === 'compare') {
+    if (c.kind === 'exercise' || c.kind === 'compare' || c.kind === 'models') {
         viewport.hide();
         controller.hide();
         timeline.show(false);
         sheet.classList.remove('hidden');
         if (c.kind === 'exercise') renderExercise(sheet, c.sim, c.code, c.state);
-        else renderCompare(sheet, c.simA, c.simB);
+        else if (c.kind === 'models') {
+            renderModels(sheet, c.state, (ex, config) => {
+                const r = build(ex.code, config);
+                if (r.sim) openSim(ex.code, config, exampleName(ex), r.sim);
+            });
+        } else renderCompare(sheet, c.simA, c.simB);
         return;
     }
 

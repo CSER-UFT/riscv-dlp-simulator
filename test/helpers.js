@@ -65,6 +65,8 @@ export const GPU_CONFIGS = {
     'GPU 8 warps de 4, 2 vias, GTO': { mode: 'gpu', gpu: { warps: 8, warpSize: 4, lanes: 2, scheduler: 'gto' } },
     'GPU 2 warps de 16, linhas de 4 bytes': { mode: 'gpu', gpu: { warps: 2, warpSize: 16, lanes: 4, lineBytes: 4, memLatency: 5 } },
     'GPU latências altas': { mode: 'gpu', gpu: { memLatency: 60 }, latency: { alu: 3, mul: 6, div: 12, load: 4, fadd: 5, fmul: 6, fdiv: 12 } },
+    'GPU 4 blocos, 2 residentes, L1': { mode: 'gpu', gpu: { blocks: 4, warps: 2, warpSize: 8, maxWarps: 4, l1: true } },
+    'GPU 8 blocos de 1 warp, 4 bancos, L1 pequena': { mode: 'gpu', gpu: { blocks: 8, warps: 1, warpSize: 4, lanes: 2, maxWarps: 3, smemBanks: 4, smemLatency: 3, l1: true, l1Bytes: 64, l1Ways: 2, lineBytes: 16, scheduler: 'gto' } },
 };
 
 /** Compara o estado final da GPU com a referência (threads em sequência) e verifica as regras de tempo. */
@@ -74,6 +76,7 @@ export function assertGpuMatchesReference(program, config, label = '') {
     const sim = simulate(program, { maxCycles: 50000, ...config });
     assert.deepEqual(sim.errors ?? [], [], `${label}: erros de configuração`);
     assert.ok(sim.finished, `${label}: a simulação não terminou (${sim.warnings.join(' ')})`);
+    assert.equal(ref.error, null, `${label}: a referência falhou`);
     ref.threads.forEach((th, tid) => {
         for (let i = 0; i < 32; i++) {
             assert.equal(sim.final.threads[tid].x[i], th.x[i], `${label}: thread ${tid}, x${i} difere`);
@@ -94,7 +97,60 @@ export function assertGpuMatchesReference(program, config, label = '') {
  * desvios e ocupação das unidades sem sobreposição.
  */
 export function checkGpuTiming(sim, label = '') {
+    const g = sim.config.gpu;
+    const G = Math.ceil(g.warpSize / g.lanes);
     const seen = new Set();
+    // Ocupação: blocos com instruções emitidas ao mesmo tempo nunca passam do limite de residentes.
+    const span = new Map();
+    for (const d of sim.dyn) {
+        const s = span.get(d.timing.block) ?? [Infinity, -Infinity];
+        span.set(d.timing.block, [Math.min(s[0], d.timing.t0), Math.max(s[1], d.timing.t0)]);
+    }
+    const byWarps = Math.floor(g.maxWarps / g.warps);
+    const sh = sim.program.shared?.size ?? 0;
+    const limit = Math.min(g.blocks, byWarps, sh > 0 ? Math.floor(g.smemBytes / sh) : Infinity);
+    for (const [b, [a]] of span) {
+        const overlap = [...span.values()].filter(([x, y]) => x <= a && a <= y).length;
+        assert.ok(overlap <= limit, `${label}: ${overlap} blocos residentes no ciclo ${a} (bloco ${b}), limite ${limit}`);
+    }
+    // Blocos lançados em ordem.
+    const starts = [...span.entries()].sort((x, y) => x[0] - y[0]).map(([, [a]]) => a);
+    for (let i = 1; i < starts.length; i++) assert.ok(starts[i] >= starts[i - 1], `${label}: blocos fora de ordem`);
+    // Barreira por bloco: depois da k ésima barreira, um warp só emite quando todos os warps do bloco que
+    // chegaram a ela já chegaram.
+    const bars = new Map();
+    for (const d of sim.dyn) if (sim.program.instructions[d.index].name === 'gpu.bar') {
+        const l = bars.get(d.timing.warp) ?? [];
+        l.push(d.timing.t0);
+        bars.set(d.timing.warp, l);
+    }
+    for (const d of sim.dyn) {
+        const mine = bars.get(d.timing.warp) ?? [];
+        mine.forEach((tb, k) => {
+            if (d.timing.t0 <= tb) return;
+            for (const [w, l] of bars) {
+                if (Math.floor(w / g.warps) !== d.timing.block || l.length <= k) continue;
+                assert.ok(d.timing.t0 > l[k], `${label}: ${d.text} passou da barreira ${k} antes do warp ${w}`);
+            }
+        });
+    }
+    // Ocupação da unidade e latência de cada instrução.
+    for (const d of sim.dyn) {
+        const tm = d.timing;
+        const cls = sim.program.instructions[d.index].def.cls;
+        assert.equal(tm.done, tm.t0 + tm.occ - 1 + tm.lat - 1, `${label}: ${d.text} conclusão`);
+        if (tm.degree !== null) {
+            assert.equal(tm.occ, Math.max(G, tm.degree), `${label}: ${d.text} ocupação com conflito de banco`);
+            assert.equal(tm.lat, g.smemLatency, `${label}: ${d.text} latência da compartilhada`);
+            assert.ok(tm.degree >= 1 && tm.degree <= Math.max(1, tm.lanes) * 2, `${label}: ${d.text} grau de conflito`);
+        } else if (tm.txn !== null) {
+            assert.equal(tm.occ, Math.max(G, tm.txn), `${label}: ${d.text} ocupação da LSU`);
+            if (!g.l1 || cls === 'store') assert.equal(tm.lat, g.memLatency, `${label}: ${d.text} latência da memória`);
+            else assert.ok(tm.lat === g.memLatency || tm.lat >= g.l1Latency, `${label}: ${d.text} latência da L1`);
+        } else {
+            assert.equal(tm.occ, G, `${label}: ${d.text} ocupação`);
+        }
+    }
     const lastWrite = new Map();
     const branchDone = new Map();
     const busy = new Map();

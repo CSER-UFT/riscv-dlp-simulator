@@ -305,7 +305,7 @@ export function simulateTpu(program, userConfig = {}) {
         d.issue = c;
         d.first = op.first;
         d.commit = op.done;
-        d.timing = { t0: c, S: op.S, G: op.G, unit: op.unit, done: op.done, tpu: op.tpu };
+        d.timing = { t0: c, S: op.S, G: op.G, unit: op.unit, done: op.done, tpu: op.tpu, slots: op.fx.slots ?? null, mxuStart: op.inst.def.kind === 'matmul' ? op.t0 : null };
         stats.instructions++;
         const inst = op.inst;
         const fx = op.fx;

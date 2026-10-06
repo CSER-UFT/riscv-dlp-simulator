@@ -21,8 +21,8 @@ test('os exemplos produzem os resultados esperados', () => {
         v.setUint32(0, Number([0, 1, 2, 3].reduce((acc, k) => acc | (BigInt(sim.final.mem.get(p + BigInt(k)) ?? 0) << BigInt(8 * k)), 0n)));
         return v.getFloat32(0);
     };
-    assert.deepEqual(Array.from({ length: 12 }, (_, i) => f32(results.saxpy, 'y', i)), [12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 132, 144]);
-    assert.deepEqual(Array.from({ length: 12 }, (_, i) => f32(results['saxpy-scalar'], 'y', i)), [12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 132, 144]);
+    assert.deepEqual(Array.from({ length: 32 }, (_, i) => f32(results.saxpy, 'y', i)), Array.from({ length: 32 }, (_, i) => 12 * (i + 1)));
+    assert.deepEqual(Array.from({ length: 32 }, (_, i) => f32(results['saxpy-scalar'], 'y', i)), Array.from({ length: 32 }, (_, i) => 12 * (i + 1)));
     assert.equal(results.dot.final.f[10], 68);
     assert.equal(results.mask.final.x[10], 3n);
     assert.deepEqual(Array.from({ length: 4 }, (_, i) => f32(results.matvec, 'y', i)), [34.5, 39, 43.5, 48]);
@@ -44,7 +44,17 @@ test('os exemplos produzem os resultados esperados', () => {
     };
     assert.deepEqual(Array.from({ length: 32 }, (_, i) => f32g(results['gpu-saxpy'], 'y', i)), Array.from({ length: 32 }, (_, i) => 12 * (i + 1)));
     assert.deepEqual(mat(results['gpu-divergence'], 'v', 32), Array.from({ length: 32 }, (_, i) => (i % 2 ? i * i : i + 100)));
-    assert.equal(i32(results['gpu-reduction'], 'v', 0), 528);
+    assert.deepEqual(mat(results['gpu-reduction'], 'out', 4), [36, 100, 164, 228]);
+    assert.equal(results['gpu-reduction'].stats.maxResident, 4);
+    assert.equal(results['gpu-banks'].stats.maxDegree, 8);
+    assert.equal(results['gpu-banks'].stats.bankConflicts, 7);
     assert.equal(results['gpu-coalescing'].stats.transactions, 48);
     assert.equal(results['gpu-divergence'].stats.divergent, 4);
+    // A mesma GEMM nos três modelos dá o mesmo C (a TPU grava C em dois blocos de colunas).
+    const A = Array.from({ length: 8 }, (_, i) => Array.from({ length: 8 }, (_, k) => ((i * 8 + k) % 7) - 3));
+    const Bm = Array.from({ length: 8 }, (_, k) => Array.from({ length: 8 }, (_, j) => ((k + 2 * j) % 5) - 2));
+    const C = A.map((row) => Bm[0].map((_, j) => row.reduce((acc, a, k) => acc + a * Bm[k][j], 0)));
+    for (const id of ['gemm-vector', 'gemm-gpu', 'gemm-gpu-shared']) assert.deepEqual(mat(results[id], 'C', 64), C.flat(), id);
+    const tpuC = C.map((row, i) => [...mat(results['gemm-tpu'], 'C0', 32).slice(4 * i, 4 * i + 4), ...mat(results['gemm-tpu'], 'C1', 32).slice(4 * i, 4 * i + 4)]);
+    assert.deepEqual(tpuC, C);
 });

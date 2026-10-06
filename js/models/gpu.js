@@ -2,8 +2,11 @@
  * GPU didática: um multiprocessador (SM) que executa o kernel em warps de threads (SIMT).
  *
  * Modelo temporal:
- *   a cada ciclo o escalonador escolhe um warp pronto e emite a próxima instrução dele, para todas as
- *   threads ativas ao mesmo tempo (uma instrução de warp por ciclo no SM);
+ *   o kernel é lançado em uma grade de blocos; o SM recebe ao mesmo tempo quantos blocos couberem no limite
+ *   de warps residentes (maxWarps) e na memória compartilhada (smemBytes); quando um bloco termina, o
+ *   próximo da grade ocupa o lugar dele no ciclo seguinte (ocupação);
+ *   a cada ciclo o escalonador escolhe um warp pronto entre os residentes e emite a próxima instrução dele,
+ *   para todas as threads ativas ao mesmo tempo (uma instrução de warp por ciclo no SM);
  *   um warp está pronto se não terminou, não está em uma barreira, não espera a resolução de um desvio,
  *   os registradores lidos e escrito não têm escrita pendente (scoreboard por warp) e a unidade da instrução
  *   está livre;
@@ -12,8 +15,12 @@
  *   unidades ALU (inteiros, desvios e instruções da GPU), FPU (ponto flutuante, multiplicação e divisão
  *   inteira) e LSU (loads e stores), cada uma com `lanes` vias: um warp ocupa a unidade por
  *   ceil(tamanho do warp ÷ lanes) ciclos;
- *   loads e stores juntam (coalescem) os acessos das threads em transações de `lineBytes` bytes; a LSU
- *   envia uma transação por ciclo, e cada uma leva a latência da memória;
+ *   memória global: a LSU junta (coalesce) os acessos das threads em transações de `lineBytes` bytes e envia
+ *   uma por ciclo; cada uma leva a latência da memória ou, com a cache L1 ligada e a linha presente, a
+ *   latência da L1 (L1 associativa por conjunto, LRU, escrita direta sem alocação nos stores);
+ *   memória compartilhada (seção .shared, uma por bloco): dividida em `smemBanks` bancos de 4 bytes; acessos
+ *   de threads diferentes a palavras diferentes do mesmo banco são serializados (conflito de banco), e a
+ *   mesma palavra é difundida sem custo;
  *   divergência: pilha SIMT por warp, com reconvergência no pós dominador imediato do desvio.
  *
  * Os valores são calculados quando a instrução é emitida; os registradores e a memória exibidos mudam no
@@ -23,7 +30,9 @@ import * as memory from '../riscv/memory.js';
 import { f32ToBits, f64ToBits } from '../riscv/bits.js';
 import { writeReg, indexAt } from '../riscv/machine.js';
 import { TEXT_BASE } from '../riscv/parser.js';
-import { initialThreads, execThread, immediatePostDominators, GpuError, gpuFail } from '../riscv/gpu.js';
+import {
+    initialThreads, execThread, immediatePostDominators, GpuError, gpuFail, threadsPerBlock, createShared,
+} from '../riscv/gpu.js';
 import * as fmt from '../riscv/format.js';
 import { t } from '../i18n/index.js';
 import { normalizeConfig, checkProgram } from '../core/config.js';
@@ -32,6 +41,62 @@ import { SCALAR_LAT } from './host.js';
 
 export const GPU_UNITS = ['ALU', 'FPU', 'LSU'];
 const UNIT_OF = { load: 2, store: 2, fadd: 1, fmul: 1, fdiv: 1, mul: 1, div: 1 };
+
+/** Blocos residentes ao mesmo tempo no SM (limites de warps e de memória compartilhada). */
+export function residentBlocks(gc, sharedSize) {
+    const byWarps = Math.floor(gc.maxWarps / gc.warps);
+    const bySmem = sharedSize > 0 ? Math.floor(gc.smemBytes / sharedSize) : Infinity;
+    return Math.max(1, Math.min(gc.blocks, byWarps, bySmem));
+}
+
+/** Grau de conflito de um acesso à memória compartilhada: maior número de palavras distintas em um banco. */
+export function bankConflict(accesses, banks) {
+    const perBank = new Map();
+    const bankOf = [];
+    for (const a of accesses) {
+        if (!a) { bankOf.push(null); continue; }
+        const lanes = [];
+        for (let w = a.addr >> 2n; w <= (a.addr + BigInt(a.size - 1)) >> 2n; w++) {
+            const b = Number(w % BigInt(banks));
+            if (!perBank.has(b)) perBank.set(b, new Set());
+            perBank.get(b).add(w);
+            lanes.push(b);
+        }
+        bankOf.push(lanes[0]);
+    }
+    let degree = 1;
+    for (const s of perBank.values()) degree = Math.max(degree, s.size);
+    return { degree, bankOf };
+}
+
+/** Cache L1 associativa por conjunto com substituição LRU; só afeta o tempo. */
+class L1Cache {
+    constructor(gc) {
+        this.ways = gc.l1Ways;
+        this.sets = Math.max(1, gc.l1Bytes / gc.lineBytes / gc.l1Ways);
+        this.lines = Array.from({ length: this.sets }, () => []);
+        this.clock = 0;
+    }
+    find(line) {
+        const set = this.lines[Number(line % BigInt(this.sets))];
+        return set.find((e) => e.line === line) ?? null;
+    }
+    touch(e) { e.used = ++this.clock; }
+    fill(line, ready) {
+        const set = this.lines[Number(line % BigInt(this.sets))];
+        let e = set.find((x) => x.line === line);
+        if (!e) {
+            if (set.length >= this.ways) {
+                const victim = set.reduce((a, b) => (a.used <= b.used ? a : b));
+                set.splice(set.indexOf(victim), 1);
+            }
+            e = { line, ready, used: 0 };
+            set.push(e);
+        }
+        e.ready = ready;
+        this.touch(e);
+    }
+}
 
 export function simulateGpu(program, userConfig = {}) {
     const { config: cfg, errors } = normalizeConfig({ ...userConfig, xlen: program.xlen });
@@ -42,28 +107,41 @@ export function simulateGpu(program, userConfig = {}) {
     const xlen = program.xlen;
     const gc = cfg.gpu;
     const WS = gc.warpSize;
+    const WPB = gc.warps;
+    const TPB = threadsPerBlock(gc);
     const G = Math.ceil(WS / gc.lanes);
+    const shSize = program.shared?.size ?? 0;
+    const maxResident = residentBlocks(gc, shSize);
     const { threads, mem: funMem } = initialThreads(program, gc, { exampleValues: cfg.exampleValues });
     const ipdom = immediatePostDominators(program);
     const pcOf = (k) => (k < 0 ? -1 : program.instructions[k].pc);
+    const l1 = gc.l1 ? new L1Cache(gc) : null;
 
-    const warps = Array.from({ length: gc.warps }, (_, id) => ({
+    const blocks = Array.from({ length: gc.blocks }, (_, id) => ({ id, state: 'pending', smem: null, start: null, end: null }));
+    const warps = Array.from({ length: gc.blocks * WPB }, (_, id) => ({
         id,
+        block: Math.floor(id / WPB),
+        wib: id % WPB,
         stack: [{ pc: TEXT_BASE, rpc: -1, mask: new Array(WS).fill(true) }],
+        launched: false,
         done: false,
         atBar: false,
         ready: 1,
         sb: new Map(),
-        sbWho: new Map(),
         waitBranch: false,
     }));
+    const resident = () => warps.filter((w) => w.launched && blocks[w.block].state === 'running');
 
     // Estado exibido ------------------------------------------------------------------------------------------
+    // Registradores das threads agrupados por warp; cada grupo e a lista são substituídos (nunca alterados no
+    // lugar) a cada escrita, para que os instantâneos os compartilhem sem cópia.
     const S = {
         cycle: 0,
-        threads: threads.map((th) => ({ x: [...th.x], f: [...th.f] })),
+        tw: warps.map((w) => threads.slice(w.id * WS, (w.id + 1) * WS).map((th) => ({ x: [...th.x], f: [...th.f] }))),
         mem: new Map(funMem),
+        sm: {},
         warps: [],
+        blocks: [],
         issued: null,
         units: [],
         lastMem: null,
@@ -80,14 +158,17 @@ export function simulateGpu(program, userConfig = {}) {
         instructions: 0, threadInstructions: 0, memInstructions: 0, transactions: 0, divergent: 0, branches: 0,
         idle: 0, waitDep: 0, waitUnit: 0, waitBranch: 0, waitBar: 0, barriers: 0,
         unitBusy: GPU_UNITS.map(() => 0),
+        sharedAccesses: 0, bankConflicts: 0, maxDegree: 1, l1Hits: 0, l1Misses: 0,
+        blocks: gc.blocks, maxResident, residentWarpCycles: 0,
     };
 
     const rec = new Recorder(userConfig.trace !== false, () => ({
-        cycle: S.cycle, threads: S.threads, warps: S.warps, issued: S.issued, units: S.units, lastMem: S.lastMem,
+        cycle: S.cycle, tw: S.tw, sm: S.sm, warps: S.warps, blocks: S.blocks, issued: S.issued, units: S.units, lastMem: S.lastMem,
         written: S.written, halted: S.halted,
-    }), () => S.mem);
+    }), () => S.mem, ['tw', 'sm']);
     const step = (msg, focus = []) => rec.step(msg, focus);
     const B = (x) => `**${x}**`;
+    const wname = (w) => (gc.blocks > 1 ? `b${w.block}w${w.wib}` : `w${w.id}`);
 
     const top = (w) => w.stack[w.stack.length - 1];
     const live = (w, mask) => mask.map((m, lane) => m && !threads[w.id * WS + lane].done);
@@ -120,6 +201,7 @@ export function simulateGpu(program, userConfig = {}) {
     /** Situação do warp no ciclo: pronto ou o motivo da espera. */
     function status(w, c) {
         if (w.done) return { state: 'done' };
+        if (!w.launched) return { state: 'pending' };
         if (w.atBar) return { state: 'bar' };
         if (w.ready > c) return { state: w.waitBranch ? 'branch' : 'busy', until: w.ready };
         const inst = program.instructions[indexAt(program, top(w).pc)];
@@ -131,17 +213,106 @@ export function simulateGpu(program, userConfig = {}) {
     }
 
     function pick(pre) {
+        const n = warps.length;
         const order = [];
         if (gc.scheduler === 'gto') {
             if (last >= 0) order.push(last);
-            for (let i = 0; i < warps.length; i++) if (i !== last) order.push(i);
+            for (let i = 0; i < n; i++) if (i !== last) order.push(i);
         } else {
-            for (let k = 1; k <= warps.length; k++) order.push((last + k + warps.length) % warps.length);
+            for (let k = 1; k <= n; k++) order.push((last + k + n) % n);
         }
         return order.find((i) => pre[i].state === 'ready') ?? -1;
     }
 
+    // Blocos -------------------------------------------------------------------------------------------------
+
+    function launch(b, c) {
+        b.state = 'running';
+        b.start = c;
+        b.smem = createShared(program);
+        if (S.sm[b.id]) { S.sm = { ...S.sm }; delete S.sm[b.id]; }
+        for (const w of warps.slice(b.id * WPB, (b.id + 1) * WPB)) {
+            w.launched = true;
+            w.ready = Math.max(c, 1);
+            settle(w);
+        }
+    }
+
+    /** Retira os blocos que terminaram e lança os próximos da grade nos lugares livres. */
+    function manageBlocks(c) {
+        const retired = [], launched = [];
+        for (const b of blocks) {
+            if (b.state !== 'running') continue;
+            if (warps.slice(b.id * WPB, (b.id + 1) * WPB).every((w) => w.done)) {
+                b.state = 'done';
+                b.end = c - 1;
+                retired.push(b.id);
+            }
+        }
+        let running = blocks.filter((b) => b.state === 'running').length;
+        for (const b of blocks) {
+            if (running >= maxResident) break;
+            if (b.state !== 'pending') continue;
+            launch(b, c);
+            launched.push(b.id);
+            running++;
+        }
+        return { retired, launched };
+    }
+
     // Emissão ----------------------------------------------------------------------------------------------------
+
+    function memTiming(w, d, inst, lanes, results, c) {
+        const cls = inst.def.cls;
+        const shared = lanes.map((l) => results.get(l).shared);
+        if (shared.some(Boolean) && !shared.every(Boolean)) gpuFail('gpu.mixedSpaces', { inst: inst.text });
+        const addrs = new Array(WS).fill(null);
+        for (const lane of lanes) addrs[lane] = results.get(lane).addr;
+        stats.memInstructions++;
+        if (shared.length > 0 && shared[0]) {
+            const acc = new Array(WS).fill(null);
+            for (const lane of lanes) acc[lane] = { addr: results.get(lane).addr, size: results.get(lane).size };
+            const { degree, bankOf } = bankConflict(acc, gc.smemBanks);
+            stats.sharedAccesses++;
+            stats.bankConflicts += degree - 1;
+            stats.maxDegree = Math.max(stats.maxDegree, degree);
+            const occ = Math.max(G, degree);
+            S.lastMem = { kind: 'shared', dyn: d.id, addrs, banks: bankOf, degree };
+            return { occ, lat: gc.smemLatency, txn: null, degree, msg: t('gpu.banks', { k: degree }) };
+        }
+        const lines = new Set();
+        for (const lane of lanes) {
+            const r = results.get(lane);
+            const first = r.addr / BigInt(gc.lineBytes), lastLine = (r.addr + BigInt(r.size - 1)) / BigInt(gc.lineBytes);
+            for (let x = first; x <= lastLine; x++) lines.add(x);
+        }
+        const sorted = [...lines].sort((a, b) => (a < b ? -1 : 1));
+        const txn = sorted.length;
+        const occ = Math.max(G, txn);
+        stats.transactions += txn;
+        let lat = gc.memLatency;
+        let hits = null;
+        if (l1 && cls === 'load') {
+            hits = sorted.map((x) => l1.find(x));
+            const end = c + occ - 1;
+            if (hits.every(Boolean)) {
+                lat = gc.l1Latency;
+                // Linhas ainda chegando de uma falta anterior: espera os dados.
+                for (const e of hits) lat = Math.max(lat, e.ready - end + 1);
+            }
+            hits.forEach((e) => { if (e) l1.touch(e); });
+            const done = end + lat - 1;
+            sorted.forEach((x, k) => { if (!hits[k]) l1.fill(x, done); });
+            const nh = hits.filter(Boolean).length;
+            stats.l1Hits += nh;
+            stats.l1Misses += txn - nh;
+            hits = hits.map(Boolean);
+        }
+        S.lastMem = { kind: 'global', dyn: d.id, addrs, lines: sorted.map((x) => x * BigInt(gc.lineBytes)), k: txn, hits };
+        let msg = t('gpu.coalesce', { k: txn, lines: txn === 1 ? t('gpu.oneLine') : t('gpu.nLines', { n: txn }) });
+        if (hits) msg += ' ' + t('gpu.l1', { h: hits.filter(Boolean).length, m: hits.filter((x) => !x).length });
+        return { occ, lat, txn, msg };
+    }
 
     function issue(w, c) {
         const e = top(w);
@@ -150,13 +321,14 @@ export function simulateGpu(program, userConfig = {}) {
         const mask = live(w, e.mask);
         const lanes = mask.map((m, l) => (m ? l : -1)).filter((l) => l >= 0);
         const results = new Map();
+        const smem = blocks[w.block].smem;
         for (const lane of lanes) {
             const tid = w.id * WS + lane;
-            results.set(lane, execThread(threads[tid], funMem, inst, tid, gc, xlen));
+            results.set(lane, execThread(threads[tid], funMem, inst, tid, gc, xlen, smem));
         }
         const d = {
-            id: dyn.length, index: k, pc: inst.pc, text: `w${w.id}: ${inst.text}`, vector: true, warp: w.id, mask: maskText(mask),
-            issue: c, first: null, commit: null, squashed: null, mispredicted: false, marks: [],
+            id: dyn.length, index: k, pc: inst.pc, text: `${wname(w)}: ${inst.text}`, vector: true, warp: w.id, block: w.block,
+            mask: maskText(mask), issue: c, first: null, commit: null, squashed: null, mispredicted: false, marks: [],
         };
         dyn.push(d);
         stats.instructions++;
@@ -166,27 +338,19 @@ export function simulateGpu(program, userConfig = {}) {
         let occ = G;
         let lat = cfg.latency[SCALAR_LAT[cls] ?? 'alu'];
         let txn = null;
+        let memMsg = '';
+        let degree = null;
         const msgs = [];
-        if (cls === 'load' || cls === 'store') {
-            const lines = new Set();
-            const addrs = new Array(WS).fill(null);
-            for (const lane of lanes) {
-                const r = results.get(lane);
-                addrs[lane] = r.addr;
-                const first = r.addr / BigInt(gc.lineBytes), lastLine = (r.addr + BigInt(r.size - 1)) / BigInt(gc.lineBytes);
-                for (let x = first; x <= lastLine; x++) lines.add(x);
-            }
-            txn = lines.size;
-            occ = Math.max(G, txn);
-            lat = gc.memLatency;
-            stats.memInstructions++;
-            stats.transactions += txn;
-            S.lastMem = { dyn: d.id, addrs, lines: [...lines].sort((a, b) => (a < b ? -1 : 1)).map((x) => x * BigInt(gc.lineBytes)), k: txn };
+        if ((cls === 'load' || cls === 'store') && lanes.length > 0) {
+            const m = memTiming(w, d, inst, lanes, results, c);
+            ({ occ, lat, txn } = m);
+            degree = m.degree ?? null;
+            memMsg = m.msg;
         }
         const done = c + occ - 1 + lat - 1;
         d.first = done;
         d.commit = done;
-        d.timing = { t0: c, occ, done, unit: u, warp: w.id, lanes: lanes.length };
+        d.timing = { t0: c, occ, lat, done, unit: u, warp: w.id, block: w.block, lanes: lanes.length, txn, degree };
         unitFree[u] = c + occ;
         stats.unitBusy[u] += occ;
         w.ready = c + 1;
@@ -198,10 +362,9 @@ export function simulateGpu(program, userConfig = {}) {
         if (inst.rd && inst.rd !== 'x0' && cls !== 'store') {
             for (const lane of lanes) {
                 const r = results.get(lane);
-                if (r.value !== null && r.value !== undefined) writes.push({ tid: w.id * WS + lane, reg: inst.rd, value: r.value });
+                if (r.value !== null && r.value !== undefined) writes.push({ lane, reg: inst.rd, value: r.value });
             }
             w.sb.set(inst.rd, done + 1);
-            w.sbWho.set(inst.rd, d.id);
         }
         const stores = [];
         if (cls === 'store') {
@@ -210,7 +373,7 @@ export function simulateGpu(program, userConfig = {}) {
                 const r = results.get(lane);
                 const v = threads[tid][inst.rs2[0] === 'x' ? 'x' : 'f'][+inst.rs2.slice(1)];
                 const raw = inst.def.mem.fp === 's' ? f32ToBits(v) : (inst.def.mem.fp === 'd' ? f64ToBits(v) : BigInt(inst.rs2 === 'x0' ? 0n : v));
-                stores.push({ addr: r.addr, size: r.size, raw });
+                stores.push({ addr: r.addr, size: r.size, raw, block: r.shared ? w.block : null });
             }
         }
         active.push({ dyn: d.id, warp: w.id, unit: u, t0: c, occ, done, writes, stores, inst, txn, lanes: lanes.length });
@@ -219,12 +382,12 @@ export function simulateGpu(program, userConfig = {}) {
         const kinds = new Set([...results.values()].map((r) => r.kind));
         if (kinds.has('exit')) {
             for (const lane of lanes) threads[w.id * WS + lane].done = true;
-            msgs.push(t('gpu.exit', { warp: B(`w${w.id}`), n: lanes.length }));
+            msgs.push(t('gpu.exit', { warp: B(wname(w)), n: lanes.length }));
         } else if (kinds.has('bar')) {
             e.pc = inst.pc + 4;
             w.atBar = true;
             stats.barriers++;
-            msgs.push(t('gpu.barArrive', { warp: B(`w${w.id}`) }));
+            msgs.push(t('gpu.barArrive', { warp: B(wname(w)) }));
         } else if (cls === 'branch' || cls === 'jump') {
             w.ready = done + 1;
             w.waitBranch = true;
@@ -250,7 +413,7 @@ export function simulateGpu(program, userConfig = {}) {
                 w.stack.push({ pc: inst.pc + 4, rpc: R, mask: toMask(notLanes) });
                 w.stack.push({ pc: inst.target, rpc: R, mask: toMask(takenLanes) });
                 msgs.push(t('gpu.diverge', {
-                    warp: B(`w${w.id}`), taken: maskText(toMask(takenLanes)), not: maskText(toMask(notLanes)),
+                    warp: B(wname(w)), taken: maskText(toMask(takenLanes)), not: maskText(toMask(notLanes)),
                     rpc: R === -1 ? t('gpu.atExit') : fmt.address(R),
                 }));
             }
@@ -265,10 +428,10 @@ export function simulateGpu(program, userConfig = {}) {
             settle(w);
         }
 
-        const extra = txn !== null ? ' ' + t('gpu.coalesce', { k: txn, lines: txn === 1 ? t('gpu.oneLine') : t('gpu.nLines', { n: txn }) }) : '';
         step(t('gpu.issue', {
-            warp: B(`w${w.id}`), inst: `\`${inst.text}\``, n: lanes.length, size: WS, unit: B(GPU_UNITS[u]), occ, done,
-        }) + extra + (msgs.length ? ' ' + msgs.join(' ') : ''), ['sched', `warp:${w.id}`, `unit:${GPU_UNITS[u]}`, ...(txn !== null ? ['lsu'] : [])]);
+            warp: B(wname(w)), inst: `\`${inst.text}\``, n: lanes.length, size: WS, unit: B(GPU_UNITS[u]), occ, done,
+        }) + (memMsg ? ' ' + memMsg : '') + (msgs.length ? ' ' + msgs.join(' ') : ''),
+        ['sched', `warp:${w.id}`, `unit:${GPU_UNITS[u]}`, ...(memMsg ? ['lsu'] : [])]);
         return d;
     }
 
@@ -277,23 +440,34 @@ export function simulateGpu(program, userConfig = {}) {
         const focus = [];
         const parts = [];
         if (op.writes.length) {
+            const group = S.tw[op.warp].slice();
             for (const wr of op.writes) {
-                const th = S.threads[wr.tid];
+                const th = group[wr.lane];
                 const copy = { x: [...th.x], f: [...th.f] };
                 writeReg(copy, wr.reg, wr.value);
-                S.threads[wr.tid] = copy;
-                (S.written[wr.tid] ??= []).push(wr.reg);
+                group[wr.lane] = copy;
+                (S.written[op.warp * WS + wr.lane] ??= []).push(wr.reg);
             }
+            S.tw = S.tw.slice();
+            S.tw[op.warp] = group;
             parts.push(t('gpu.writeRegs', { reg: B(op.writes[0].reg), n: op.writes.length }));
             focus.push('threads');
         }
         if (op.stores.length) {
-            S.mem = new Map(S.mem);
-            for (const st of op.stores) {
-                memory.writeRaw(S.mem, st.addr, st.size, st.raw);
-                focus.push(`mem:${st.addr}`);
+            if (op.stores[0].block !== null) {
+                const b = op.stores[0].block;
+                S.sm = { ...S.sm, [b]: new Map(S.sm[b] ?? []) };
+                for (const st of op.stores) memory.writeRaw(S.sm[b], st.addr, st.size, st.raw);
+                focus.push('smem');
+                parts.push(t('gpu.writeShared', { n: op.stores.length }));
+            } else {
+                S.mem = new Map(S.mem);
+                for (const st of op.stores) {
+                    memory.writeRaw(S.mem, st.addr, st.size, st.raw);
+                    focus.push(`mem:${st.addr}`);
+                }
+                parts.push(t('gpu.writeMem', { n: op.stores.length }));
             }
-            parts.push(t('gpu.writeMem', { n: op.stores.length }));
         }
         if (parts.length) step(t('gpu.complete', { inst: `\`${dyn[op.dyn].text}\``, list: parts.join('; ') }), focus);
     }
@@ -305,15 +479,16 @@ export function simulateGpu(program, userConfig = {}) {
     }
 
     function view(c, pre) {
-        S.warps = warps.map((w, i) => {
-            const st = S.issued?.warp === i ? { state: 'issued' } : pre[i];
+        S.warps = resident().map((w) => {
+            const st = S.issued?.warp === w.id ? { state: 'issued' } : pre[w.id];
             const e = top(w);
             return {
-                id: w.id, done: w.done, state: st.state, reg: st.reg ?? null, unit: st.unit ?? null, until: st.until ?? null,
-                pc: e ? e.pc : null, mask: e ? live(w, e.mask) : new Array(WS).fill(false),
+                id: w.id, name: wname(w), block: w.block, done: w.done, state: st.state, reg: st.reg ?? null, unit: st.unit ?? null,
+                until: st.until ?? null, pc: e ? e.pc : null, mask: e ? live(w, e.mask) : new Array(WS).fill(false),
                 stack: w.stack.map((x) => ({ pc: x.pc, rpc: x.rpc, mask: maskText(live(w, x.mask)) })),
             };
         });
+        S.blocks = blocks.map((b) => b.state);
         S.units = GPU_UNITS.map((name, u) => ({
             name,
             ops: active.filter((op) => op.unit === u && op.t0 <= c && op.done >= c).map((op) => ({ dyn: op.dyn, t0: op.t0, occ: op.occ, done: op.done, txn: op.txn })),
@@ -324,7 +499,8 @@ export function simulateGpu(program, userConfig = {}) {
 
     const isDone = () => warps.every((w) => w.done) && active.length === 0;
 
-    for (const w of warps) settle(w);
+    manageBlocks(0);
+    for (const w of warps) w.ready = 1;
     view(0, warps.map((w) => status(w, 1)));
     rec.endCycle();
     try {
@@ -339,13 +515,24 @@ export function simulateGpu(program, userConfig = {}) {
             S.written = {};
             S.issued = null;
             for (const op of active) applyWrites(op, c);
-            // Barreira: libera todos quando os warps que ainda executam chegaram.
-            const running = warps.filter((w) => !w.done);
-            if (running.length > 0 && running.every((w) => w.atBar)) {
-                for (const w of running) { w.atBar = false; w.ready = Math.max(w.ready, c); }
-                step(t('gpu.barRelease', { n: running.length }), ['sched']);
+            const { retired, launched } = manageBlocks(c);
+            if (retired.length || launched.length) {
+                const parts = [];
+                if (retired.length) parts.push(t('gpu.blockDone', { list: retired.map((b) => `b${b}`).join(', ') }));
+                if (launched.length) parts.push(t('gpu.blockLaunch', { list: launched.map((b) => `b${b}`).join(', ') }));
+                step(parts.join(' '), ['blocks']);
+            }
+            // Barreira de cada bloco: libera os warps quando todos os que ainda executam chegaram.
+            for (const b of blocks) {
+                if (b.state !== 'running') continue;
+                const running = warps.slice(b.id * WPB, (b.id + 1) * WPB).filter((w) => !w.done);
+                if (running.length > 0 && running.every((w) => w.atBar)) {
+                    for (const w of running) { w.atBar = false; w.ready = Math.max(w.ready, c); }
+                    step(gc.blocks > 1 ? t('gpu.barReleaseBlock', { n: running.length, b: b.id }) : t('gpu.barRelease', { n: running.length }), ['sched']);
+                }
             }
             const pre = warps.map((w) => status(w, c));
+            stats.residentWarpCycles += warps.filter((w) => w.launched && !w.done).length;
             const i = pick(pre);
             if (i >= 0) {
                 const d = issue(warps[i], c);
@@ -353,7 +540,7 @@ export function simulateGpu(program, userConfig = {}) {
                 applyWrites(active[active.length - 1], c);
             } else if (!warps.every((w) => w.done)) {
                 stats.idle++;
-                const st = pre.filter((x) => x.state !== 'done').map((x) => x.state);
+                const st = pre.filter((x) => x.state !== 'done' && x.state !== 'pending').map((x) => x.state);
                 if (st.includes('dep')) stats.waitDep++;
                 else if (st.includes('unit')) stats.waitUnit++;
                 else if (st.includes('branch')) stats.waitBranch++;
@@ -372,6 +559,7 @@ export function simulateGpu(program, userConfig = {}) {
         step(e.message, ['sched']);
         rec.endCycle();
     }
+    for (const b of blocks) if (b.state === 'running' && warps.slice(b.id * WPB, (b.id + 1) * WPB).every((w) => w.done)) { b.state = 'done'; b.end = S.cycle; }
 
     const cycles = S.cycle;
     return {
@@ -384,10 +572,12 @@ export function simulateGpu(program, userConfig = {}) {
         dyn,
         warnings,
         finished: isDone() || S.halted,
+        blocks: blocks.map((b) => ({ id: b.id, start: b.start, end: b.end })),
         stats: {
             ...stats, cycles, ipc: cycles > 0 ? stats.instructions / cycles : 0,
             cpi: stats.instructions > 0 ? cycles / stats.instructions : 0,
+            occupancy: cycles > 0 ? stats.residentWarpCycles / (cycles * gc.maxWarps) : 0,
         },
-        final: { threads: S.threads, mem: S.mem },
+        final: { threads: S.tw.flat(), mem: S.mem },
     };
 }

@@ -1,13 +1,22 @@
 /**
  * GPU didática (SIMT): o programa é um kernel RISC-V executado por todas as threads, agrupadas em warps.
  *
+ * O kernel é lançado em uma grade de `blocks` blocos, cada um com `warps` warps de `warpSize` threads.
+ *
  * Instruções próprias:
- *   gpu.tid rd     índice global da thread (warp × tamanho do warp + lane)
- *   gpu.ntid rd    número total de threads
- *   gpu.wid rd     índice do warp
+ *   gpu.tid rd     índice global da thread (bloco × threads por bloco + índice no bloco)
+ *   gpu.ntid rd    número total de threads da grade
+ *   gpu.bid rd     índice do bloco
+ *   gpu.nbid rd    número de blocos
+ *   gpu.btid rd    índice da thread dentro do bloco
+ *   gpu.bdim rd    threads por bloco
+ *   gpu.wid rd     índice do warp dentro do bloco
  *   gpu.lane rd    índice da thread dentro do warp
- *   gpu.bar        barreira: o warp espera todos os warps chegarem
+ *   gpu.bar        barreira: o warp espera todos os warps do seu bloco chegarem
  * Uma thread termina em ecall/ebreak ou ao passar do fim do código.
+ *
+ * Memória compartilhada: os endereços da seção .shared (a partir de SHARED_BASE) pertencem a cada bloco;
+ * threads de blocos diferentes veem cópias diferentes, que começam zeradas.
  *
  * Divergência: quando as threads ativas de um warp seguem caminhos diferentes em um desvio, o warp executa
  * os dois caminhos em sequência, com máscaras complementares, e as threads voltam a se juntar no pós
@@ -18,11 +27,17 @@
  * qualquer escalonamento dos warps.
  */
 import { initialState, readReg, writeReg, effectiveAddress, indexAt, resolveControl } from './machine.js';
-import { TEXT_BASE, STACK_TOP } from './parser.js';
+import { TEXT_BASE, STACK_TOP, SHARED_BASE, SHARED_MAX } from './parser.js';
 import * as memory from './memory.js';
 import { t } from '../i18n/index.js';
 
-export const DEFAULT_GPU = { warps: 4, warpSize: 8, lanes: 8, scheduler: 'rr', memLatency: 20, lineBytes: 32 };
+export const DEFAULT_GPU = {
+    warps: 4, warpSize: 8, lanes: 8, scheduler: 'rr', memLatency: 20, lineBytes: 32,
+    blocks: 1, maxWarps: 8, smemBytes: 1024, smemBanks: 8, smemLatency: 2,
+    l1: false, l1Bytes: 256, l1Ways: 2, l1Latency: 4,
+};
+/** Limite de threads da grade (pilhas separadas de 256 bytes abaixo de STACK_TOP). */
+export const MAX_THREADS = 1024;
 export const SCHEDULERS = ['rr', 'gto'];
 
 export class GpuError extends Error { }
@@ -31,6 +46,10 @@ export function registerGpu(def) {
     const G = (name, props) => def(name, { fmt: 'V', gpu: true, masked: false, cls: 'alu', ...props });
     G('gpu.tid', { kind: 'tid', rd: 'x', vops: ['rd'] });
     G('gpu.ntid', { kind: 'ntid', rd: 'x', vops: ['rd'] });
+    G('gpu.bid', { kind: 'bid', rd: 'x', vops: ['rd'] });
+    G('gpu.nbid', { kind: 'nbid', rd: 'x', vops: ['rd'] });
+    G('gpu.btid', { kind: 'btid', rd: 'x', vops: ['rd'] });
+    G('gpu.bdim', { kind: 'bdim', rd: 'x', vops: ['rd'] });
     G('gpu.wid', { kind: 'wid', rd: 'x', vops: ['rd'] });
     G('gpu.lane', { kind: 'lane', rd: 'x', vops: ['rd'] });
     G('gpu.bar', { kind: 'bar', cls: 'system', vops: [] });
@@ -39,10 +58,20 @@ export function registerGpu(def) {
 /** Espaço de pilha de cada thread (bytes). */
 export const STACK_PER_THREAD = 256;
 
-/** Estado inicial de todas as threads: registradores próprios (sp separado) e memória compartilhada. */
+/** Threads por bloco e total da grade. */
+export const threadsPerBlock = (gc) => gc.warps * gc.warpSize;
+export const totalThreads = (gc) => gc.blocks * gc.warps * gc.warpSize;
+
+/** É um endereço da memória compartilhada? */
+export const isShared = (addr) => addr >= BigInt(SHARED_BASE) && addr < BigInt(SHARED_BASE + SHARED_MAX);
+
+/** Memória compartilhada de um bloco: o conteúdo e o tamanho declarado na seção .shared. */
+export const createShared = (program) => ({ map: new Map(), size: program.shared?.size ?? 0 });
+
+/** Estado inicial de todas as threads da grade: registradores próprios (sp separado) e memória global. */
 export function initialThreads(program, gc, { exampleValues = true } = {}) {
     const base = initialState(program, { exampleValues });
-    const n = gc.warps * gc.warpSize;
+    const n = totalThreads(gc);
     const threads = Array.from({ length: n }, (_, tid) => {
         const x = [...base.x];
         x[2] = BigInt(STACK_TOP - tid * STACK_PER_THREAD);
@@ -51,17 +80,32 @@ export function initialThreads(program, gc, { exampleValues = true } = {}) {
     return { threads, mem: base.mem };
 }
 
+/** Escolhe a memória (global ou compartilhada do bloco) de um acesso e confere os limites da compartilhada. */
+function memFor(mem, smem, addr, size, inst) {
+    if (!isShared(addr)) return mem;
+    if (!smem) return mem;
+    const off = Number(addr - BigInt(SHARED_BASE));
+    if (off + size > smem.size) gpuFail('gpu.sharedRange', { inst: inst.text, addr: `0x${addr.toString(16)}`, size: smem.size });
+    return smem.map;
+}
+
 /**
- * Executa uma instrução em uma thread (registradores próprios, memória compartilhada).
- * @returns {{next: number, value: *|null, kind: string, addr?: bigint, size?: number, raw?: bigint}}
+ * Executa uma instrução em uma thread (registradores próprios, memória global e compartilhada do bloco).
+ * @param {{map: Map, size: number}|null} smem memória compartilhada do bloco da thread
+ * @returns {{next: number, value: *|null, kind: string, addr?: bigint, size?: number, shared?: boolean}}
  */
-export function execThread(th, mem, inst, tid, gc, xlen) {
+export function execThread(th, mem, inst, tid, gc, xlen, smem = null) {
     const d = inst.def;
     const a = readReg(th, inst.rs1), b = readReg(th, inst.rs2), c = readReg(th, inst.rs3);
     const out = { next: inst.pc + 4, value: null, kind: 'op' };
     if (d.gpu) {
         if (d.kind === 'bar') { out.kind = 'bar'; return out; }
-        const v = { tid, ntid: gc.warps * gc.warpSize, wid: Math.floor(tid / gc.warpSize), lane: tid % gc.warpSize }[d.kind];
+        const tpb = threadsPerBlock(gc);
+        const btid = tid % tpb;
+        const v = {
+            tid, ntid: totalThreads(gc), bid: Math.floor(tid / tpb), nbid: gc.blocks, btid, bdim: tpb,
+            wid: Math.floor(btid / gc.warpSize), lane: tid % gc.warpSize,
+        }[d.kind];
         out.value = BigInt(v);
         writeReg(th, inst.rd, out.value);
         return out;
@@ -72,7 +116,8 @@ export function execThread(th, mem, inst, tid, gc, xlen) {
             return out;
         case 'load': {
             const addr = effectiveAddress(inst, a, xlen);
-            out.value = memory.load(mem, addr, d.mem, xlen);
+            out.value = memory.load(memFor(mem, smem, addr, d.mem.size, inst), addr, d.mem, xlen);
+            out.shared = smem !== null && isShared(addr);
             out.kind = 'load';
             out.addr = addr;
             out.size = d.mem.size;
@@ -81,7 +126,8 @@ export function execThread(th, mem, inst, tid, gc, xlen) {
         }
         case 'store': {
             const addr = effectiveAddress(inst, a, xlen);
-            memory.store(mem, addr, d.mem, b);
+            memory.store(memFor(mem, smem, addr, d.mem.size, inst), addr, d.mem, b);
+            out.shared = smem !== null && isShared(addr);
             out.kind = 'store';
             out.addr = addr;
             out.size = d.mem.size;
@@ -146,35 +192,45 @@ export function immediatePostDominators(program) {
 }
 
 /**
- * Simulador funcional de referência: executa cada thread em sequência até a próxima barreira (ou o fim),
- * fase a fase.
+ * Simulador funcional de referência: executa os blocos um depois do outro e, dentro de cada bloco, cada
+ * thread em sequência até a próxima barreira (ou o fim), fase a fase.
  */
 export function runGpuReference(program, gc, { exampleValues = true, maxInstructions = 400000 } = {}) {
     const xlen = program.xlen;
     const { threads, mem } = initialThreads(program, gc, { exampleValues });
     const pcs = threads.map(() => TEXT_BASE);
+    const tpb = threadsPerBlock(gc);
     let executed = 0;
-    let reason = 'fim do código';
-    for (;;) {
-        let any = false;
-        for (let tid = 0; tid < threads.length; tid++) {
-            const th = threads[tid];
-            while (!th.done) {
-                const i = indexAt(program, pcs[tid]);
-                if (i < 0) { th.done = true; break; }
-                if (executed >= maxInstructions) return { threads, mem, executed, reason: 'limite de instruções' };
-                const inst = program.instructions[i];
-                const r = execThread(th, mem, inst, tid, gc, xlen);
-                executed++;
-                if (r.kind === 'exit') { th.done = true; break; }
-                pcs[tid] = r.next;
-                if (r.kind === 'bar') { any = true; break; }
+    let error = null;
+    try {
+        for (let blk = 0; blk < gc.blocks; blk++) {
+            const smem = createShared(program);
+            const mine = threads.slice(blk * tpb, (blk + 1) * tpb);
+            for (;;) {
+                let any = false;
+                for (let k = 0; k < mine.length; k++) {
+                    const tid = blk * tpb + k;
+                    const th = mine[k];
+                    while (!th.done) {
+                        const i = indexAt(program, pcs[tid]);
+                        if (i < 0) { th.done = true; break; }
+                        if (executed >= maxInstructions) return { threads, mem, executed, reason: 'limite de instruções' };
+                        const inst = program.instructions[i];
+                        const r = execThread(th, mem, inst, tid, gc, xlen, smem);
+                        executed++;
+                        if (r.kind === 'exit') { th.done = true; break; }
+                        pcs[tid] = r.next;
+                        if (r.kind === 'bar') { any = true; break; }
+                    }
+                }
+                if (!any || mine.every((th) => th.done)) break;
             }
         }
-        if (!any) break;
-        if (threads.every((th) => th.done)) break;
+    } catch (e) {
+        if (!(e instanceof GpuError)) throw e;
+        error = e.message;
     }
-    return { threads, mem, executed, reason };
+    return { threads, mem, executed, reason: error ?? 'fim do código', error };
 }
 
 export const gpuFail = (key, params) => { throw new GpuError(t(key, params)); };

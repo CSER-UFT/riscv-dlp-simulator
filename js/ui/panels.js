@@ -108,6 +108,17 @@ export function statsRows(sim) {
         rows.push([t('stats.transactions'), s.transactions]);
         rows.push([t('stats.txnPerAccess'), fmtNum(s.memInstructions ? s.transactions / s.memInstructions : 0, 2)]);
         rows.push([t('stats.divergent'), `${s.divergent} / ${s.branches}`]);
+        if (g.blocks > 1) {
+            rows.push([t('stats.blocks'), s.blocks]);
+            rows.push([t('stats.maxResident'), s.maxResident]);
+        }
+        rows.push([t('stats.occupancy'), pct(s.occupancy * 100, 100)]);
+        if (s.sharedAccesses > 0) {
+            rows.push([t('stats.sharedAccesses'), s.sharedAccesses]);
+            rows.push([t('stats.bankConflicts'), s.bankConflicts]);
+            rows.push([t('stats.maxDegree'), s.maxDegree]);
+        }
+        if (g.l1) rows.push([t('stats.l1'), `${s.l1Hits} / ${s.l1Hits + s.l1Misses} (${pct(s.l1Hits, s.l1Hits + s.l1Misses)})`]);
         ['ALU', 'FPU', 'LSU'].forEach((u, i) => rows.push([t('stats.unitBusy', { unit: u }), pct(s.unitBusy[i], s.cycles)]));
         rows.push([t('stats.idle'), s.idle]);
         const stall2 = (key, v) => { if (v > 0) rows.push([t(key), v]); };

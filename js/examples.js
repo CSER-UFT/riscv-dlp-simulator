@@ -16,9 +16,9 @@ export const EXAMPLES = [
 # Com VLEN = 256 e elementos de 32 bits, cada bloco tem até 8 elementos.
 .data
 a:  .float 2.0
-n:  .word 12
-x:  .float 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
-y:  .float 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120
+n:  .word 32
+x:  .float 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+y:  .float 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300, 310, 320
 .text
     la      t0, a
     flw     fa0, 0(t0)          # fa0 = a
@@ -48,9 +48,9 @@ laco:
 # Compare o número de ciclos e de instruções com o exemplo SAXPY com strip mining.
 .data
 a:  .float 2.0
-n:  .word 12
-x:  .float 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
-y:  .float 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120
+n:  .word 32
+x:  .float 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+y:  .float 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300, 310, 320
 .text
     la      t0, a
     flw     fa0, 0(t0)          # fa0 = a
@@ -544,33 +544,360 @@ fim:
     },
     {
         id: 'gpu-reduction',
-        name: 'GPU: redução com barreira',
-        nameEn: 'GPU: reduction with barrier',
-        config: { mode: 'gpu', gpu: { warps: 4, warpSize: 8 } },
-        code: `# Soma dos 32 elementos de v em árvore (feita para 32 threads: 4 warps de 8).
-# A cada passo, as threads i < s somam v[i + s] em v[i]; a barreira garante que o passo terminou
-# em todos os warps antes do seguinte. No fim, v[0] = 528.
+        name: 'GPU: redução na memória compartilhada',
+        nameEn: 'GPU: reduction in shared memory',
+        config: { mode: 'gpu', gpu: { blocks: 4, warps: 1, warpSize: 8 } },
+        code: `# Soma dos 32 elementos de v em 4 blocos de 8 threads. Cada bloco copia a sua parte de v para a
+# memória compartilhada (seção .shared, uma cópia por bloco) e soma em árvore: a cada passo, as
+# threads i < passo somam s[i + passo] em s[i], e a barreira do bloco garante que o passo terminou.
+# A thread 0 de cada bloco grava a soma parcial em out[bloco]: 36, 100, 164 e 228 (total 528).
+# Experimente: menos warps residentes no SM (configuração) fazem os blocos esperarem a vez.
 .data
-v:  .word 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+n:   .word 32
+v:   .word 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+out: .space 256                 # uma soma parcial por bloco
+.shared
+s:   .space 128                 # uma palavra por thread do bloco (até 32 threads)
 .text
-    gpu.tid  t0
-    la      t2, v
-    slli    t3, t0, 2
-    add     t3, t2, t3          # endereço de v[i]
-    li      t4, 16              # s
+    gpu.tid  t0                 # i global
+    gpu.btid t1                 # índice dentro do bloco
+    gpu.bid  t2
+    gpu.bdim t3                 # threads por bloco
+    lw      t4, n
+    li      a0, 0
+    bge     t0, t4, copia       # fora de v: soma 0
+    la      t5, v
+    slli    t6, t0, 2
+    add     t5, t5, t6
+    lw      a0, 0(t5)
+copia:
+    la      s0, s
+    slli    t6, t1, 2
+    add     s1, s0, t6          # endereço de s[btid]
+    sw      a0, 0(s1)
+    gpu.bar
+    srli    t4, t3, 1           # passo = threads por bloco / 2
 passo:
-    bge     t0, t4, espera      # só as threads i < s trabalham
+    bge     t1, t4, espera      # só as threads com índice < passo trabalham
     slli    t5, t4, 2
-    add     t5, t3, t5          # endereço de v[i + s]
+    add     t5, s1, t5          # endereço de s[btid + passo]
     lw      t6, 0(t5)
-    lw      a0, 0(t3)
-    add     a0, a0, t6
-    sw      a0, 0(t3)
+    lw      a1, 0(s1)
+    add     a1, a1, t6
+    sw      a1, 0(s1)
 espera:
     gpu.bar
     srli    t4, t4, 1
     bnez    t4, passo
+    bnez    t1, fim             # só a thread 0 do bloco grava
+    lw      a1, 0(s0)
+    la      t5, out
+    slli    t6, t2, 2
+    add     t5, t5, t6
+    sw      a1, 0(t5)
+fim:
     ecall
+`,
+    },
+    {
+        id: 'gpu-banks',
+        name: 'GPU: conflitos de banco',
+        nameEn: 'GPU: bank conflicts',
+        config: { mode: 'gpu', gpu: { warps: 1, warpSize: 8, smemBanks: 8 } },
+        code: `# Cada thread grava na coluna 0 de uma matriz 8 x 8 de palavras na memória compartilhada.
+# Em m, as linhas têm 8 palavras: a coluna 0 de todas as linhas cai no mesmo banco (8 bancos de
+# 4 bytes), e o acesso é serializado em 8 ciclos (conflito de grau 8).
+# Em p, cada linha tem uma palavra de enchimento (9 palavras): a coluna 0 de cada linha cai em um banco
+# diferente, e o acesso leva um ciclo. Veja o painel de bancos e as estatísticas.
+.shared
+m:  .space 256                  # 8 x 8 palavras
+p:  .space 288                  # 8 x 9 palavras
+.text
+    gpu.lane t0
+    andi    t0, t0, 7           # linha (8 linhas)
+    la      t1, m
+    slli    t2, t0, 5           # linha * 32 bytes
+    add     t2, t1, t2
+    sw      t0, 0(t2)           # m[linha][0]: passo de 8 palavras, mesmo banco
+    la      t1, p
+    li      t3, 36
+    mul     t2, t0, t3          # linha * 36 bytes
+    add     t2, t1, t2
+    sw      t0, 0(t2)           # p[linha][0]: passo de 9 palavras, bancos diferentes
+    lw      t4, 0(t2)
+    ecall
+`,
+    },
+    {
+        id: 'gemm-vector',
+        name: 'Comparação: GEMM 8 x 8 no processador vetorial',
+        nameEn: 'Comparison: 8 x 8 GEMM on the vector processor',
+        config: { mode: 'vector' },
+        code: `# C = A x B com matrizes 8 x 8 de inteiros (mesma carga dos exemplos de GEMM da GPU e da TPU).
+# Para cada linha i de C, o laço em k soma A[i][k] x (linha k de B) no acumulador v8 com vmacc.vx.
+# As colunas são processadas em blocos de até VLMAX elementos (strip mining), para qualquer VLEN.
+.data
+A:   .word -3, -2, -1, 0, 1, 2, 3, -3
+     .word -2, -1, 0, 1, 2, 3, -3, -2
+     .word -1, 0, 1, 2, 3, -3, -2, -1
+     .word 0, 1, 2, 3, -3, -2, -1, 0
+     .word 1, 2, 3, -3, -2, -1, 0, 1
+     .word 2, 3, -3, -2, -1, 0, 1, 2
+     .word 3, -3, -2, -1, 0, 1, 2, 3
+     .word -3, -2, -1, 0, 1, 2, 3, -3
+B:   .word -2, 0, 2, -1, 1, -2, 0, 2
+     .word -1, 1, -2, 0, 2, -1, 1, -2
+     .word 0, 2, -1, 1, -2, 0, 2, -1
+     .word 1, -2, 0, 2, -1, 1, -2, 0
+     .word 2, -1, 1, -2, 0, 2, -1, 1
+     .word -2, 0, 2, -1, 1, -2, 0, 2
+     .word -1, 1, -2, 0, 2, -1, 1, -2
+     .word 0, 2, -1, 1, -2, 0, 2, -1
+C:   .space 256
+.text
+    la      s0, A
+    la      s1, B
+    la      s2, C
+    li      s3, 8               # N
+    li      t0, 0               # i
+linha:
+    li      t1, 0               # j0: primeira coluna do bloco
+bloco:
+    sub     t2, s3, t1
+    vsetvli t3, t2, e32, m1, ta, ma
+    vmv.v.i v8, 0               # acumulador de C[i][j0..]
+    slli    t4, t0, 5           # i x 32 bytes
+    add     a0, s0, t4          # endereço de A[i][0]
+    slli    t5, t1, 2
+    add     a1, s1, t5          # endereço de B[0][j0]
+    li      t6, 8               # k restantes
+k:
+    lw      a2, 0(a0)           # A[i][k]
+    vle32.v v1, (a1)            # B[k][j0..]
+    vmacc.vx v8, a2, v1         # C[i][j0..] += A[i][k] x B[k][j0..]
+    addi    a0, a0, 4
+    addi    a1, a1, 32
+    addi    t6, t6, -1
+    bnez    t6, k
+    add     a3, s2, t4
+    add     a3, a3, t5          # endereço de C[i][j0]
+    vse32.v v8, (a3)
+    add     t1, t1, t3
+    blt     t1, s3, bloco
+    addi    t0, t0, 1
+    blt     t0, s3, linha
+    ecall
+`,
+    },
+    {
+        id: 'gemm-gpu',
+        name: 'Comparação: GEMM 8 x 8 na GPU',
+        nameEn: 'Comparison: 8 x 8 GEMM on the GPU',
+        config: { mode: 'gpu', gpu: { blocks: 2 } },
+        code: `# C = A x B com matrizes 8 x 8 de inteiros: cada thread calcula um elemento C[r][c] (64 threads em
+# 2 blocos). Em cada passo de k, as threads de um warp leem a mesma A[r][k] (uma transação) e elementos
+# vizinhos de B[k][c] (coalescidos). Com menos threads, cada uma calcula vários elementos.
+.data
+A:   .word -3, -2, -1, 0, 1, 2, 3, -3
+     .word -2, -1, 0, 1, 2, 3, -3, -2
+     .word -1, 0, 1, 2, 3, -3, -2, -1
+     .word 0, 1, 2, 3, -3, -2, -1, 0
+     .word 1, 2, 3, -3, -2, -1, 0, 1
+     .word 2, 3, -3, -2, -1, 0, 1, 2
+     .word 3, -3, -2, -1, 0, 1, 2, 3
+     .word -3, -2, -1, 0, 1, 2, 3, -3
+B:   .word -2, 0, 2, -1, 1, -2, 0, 2
+     .word -1, 1, -2, 0, 2, -1, 1, -2
+     .word 0, 2, -1, 1, -2, 0, 2, -1
+     .word 1, -2, 0, 2, -1, 1, -2, 0
+     .word 2, -1, 1, -2, 0, 2, -1, 1
+     .word -2, 0, 2, -1, 1, -2, 0, 2
+     .word -1, 1, -2, 0, 2, -1, 1, -2
+     .word 0, 2, -1, 1, -2, 0, 2, -1
+C:   .space 256
+.text
+    gpu.tid  t0
+    gpu.ntid t1
+    li      s3, 64              # elementos de C
+    la      s0, A
+    la      s1, B
+    la      s2, C
+elemento:
+    bge     t0, s3, fim
+    srli    a0, t0, 3           # linha r
+    andi    a1, t0, 7           # coluna c
+    slli    a2, a0, 5
+    add     a2, s0, a2          # endereço de A[r][0]
+    slli    a3, a1, 2
+    add     a3, s1, a3          # endereço de B[0][c]
+    li      a4, 0               # soma
+    li      a5, 8               # k restantes
+k:
+    lw      t2, 0(a2)           # A[r][k]
+    lw      t3, 0(a3)           # B[k][c]
+    mul     t2, t2, t3
+    add     a4, a4, t2
+    addi    a2, a2, 4
+    addi    a3, a3, 32
+    addi    a5, a5, -1
+    bnez    a5, k
+    slli    t4, t0, 2
+    add     t4, s2, t4
+    sw      a4, 0(t4)           # C[r][c]
+    add     t0, t0, t1
+    j       elemento
+fim:
+    ecall
+`,
+    },
+    {
+        id: 'gemm-gpu-shared',
+        name: 'Comparação: GEMM 8 x 8 na GPU com memória compartilhada',
+        nameEn: 'Comparison: 8 x 8 GEMM on the GPU with shared memory',
+        config: { mode: 'gpu', gpu: { blocks: 1, warps: 2 } },
+        code: `# A mesma GEMM, mas o bloco primeiro copia A e B para a memória compartilhada (as threads dividem a
+# cópia), espera na barreira e depois calcula a partir da compartilhada, que tem latência bem menor que a
+# memória global. Com 2 warps, compare com a GEMM sem memória compartilhada na mesma configuração
+# (1 bloco de 2 warps): as transações caem de 136 para 24 e os ciclos de 1265 para 959. Com 8 warps,
+# o escalonador já esconde a latência da memória global, e a cópia vira só trabalho a mais.
+.data
+A:   .word -3, -2, -1, 0, 1, 2, 3, -3
+     .word -2, -1, 0, 1, 2, 3, -3, -2
+     .word -1, 0, 1, 2, 3, -3, -2, -1
+     .word 0, 1, 2, 3, -3, -2, -1, 0
+     .word 1, 2, 3, -3, -2, -1, 0, 1
+     .word 2, 3, -3, -2, -1, 0, 1, 2
+     .word 3, -3, -2, -1, 0, 1, 2, 3
+     .word -3, -2, -1, 0, 1, 2, 3, -3
+B:   .word -2, 0, 2, -1, 1, -2, 0, 2
+     .word -1, 1, -2, 0, 2, -1, 1, -2
+     .word 0, 2, -1, 1, -2, 0, 2, -1
+     .word 1, -2, 0, 2, -1, 1, -2, 0
+     .word 2, -1, 1, -2, 0, 2, -1, 1
+     .word -2, 0, 2, -1, 1, -2, 0, 2
+     .word -1, 1, -2, 0, 2, -1, 1, -2
+     .word 0, 2, -1, 1, -2, 0, 2, -1
+C:   .space 256
+.shared
+sA:  .space 256
+sB:  .space 256
+.text
+    gpu.btid t0
+    gpu.bdim t1
+    la      s0, A
+    la      s4, sA
+    li      t2, 128             # palavras de A e B juntas (sA e sB são vizinhas, como A e B)
+copia:
+    bge     t0, t2, calcula
+    slli    t3, t0, 2
+    add     t4, s0, t3
+    lw      t5, 0(t4)
+    add     t4, s4, t3
+    sw      t5, 0(t4)
+    add     t0, t0, t1
+    j       copia
+calcula:
+    gpu.bar
+    gpu.tid  t0
+    gpu.ntid t1
+    li      s3, 64
+    la      s1, sB
+    la      s2, C
+elemento:
+    bge     t0, s3, fim
+    srli    a0, t0, 3           # linha r
+    andi    a1, t0, 7           # coluna c
+    slli    a2, a0, 5
+    add     a2, s4, a2          # endereço de sA[r][0]
+    slli    a3, a1, 2
+    add     a3, s1, a3          # endereço de sB[0][c]
+    li      a4, 0
+    li      a5, 8
+k:
+    lw      t2, 0(a2)
+    lw      t3, 0(a3)
+    mul     t2, t2, t3
+    add     a4, a4, t2
+    addi    a2, a2, 4
+    addi    a3, a3, 32
+    addi    a5, a5, -1
+    bnez    a5, k
+    slli    t4, t0, 2
+    add     t4, s2, t4
+    sw      a4, 0(t4)
+    add     t0, t0, t1
+    j       elemento
+fim:
+    ecall
+`,
+    },
+    {
+        id: 'gemm-tpu',
+        name: 'Comparação: GEMM 8 x 8 na TPU',
+        nameEn: 'Comparison: 8 x 8 GEMM on the TPU',
+        config: { mode: 'tpu' },
+        code: `# C = A x B com as mesmas matrizes 8 x 8 dos exemplos de GEMM vetorial e da GPU, em um array 4 x 4.
+# Os dados já estão em blocos: A0 e A1 são as colunas 0 a 3 e 4 a 7 de A (8 linhas cada); B00, B10,
+# B01 e B11 são os blocos 4 x 4 de B. C0 (colunas 0 a 3 de C) = A0 x B00 + A1 x B10 e
+# C1 (colunas 4 a 7) = A0 x B01 + A1 x B11. Na TPU v1, esse rearranjo é feito pelo software do host.
+.data
+A0:  .word -3, -2, -1, 0
+     .word -2, -1, 0, 1
+     .word -1, 0, 1, 2
+     .word 0, 1, 2, 3
+     .word 1, 2, 3, -3
+     .word 2, 3, -3, -2
+     .word 3, -3, -2, -1
+     .word -3, -2, -1, 0
+A1:  .word 1, 2, 3, -3
+     .word 2, 3, -3, -2
+     .word 3, -3, -2, -1
+     .word -3, -2, -1, 0
+     .word -2, -1, 0, 1
+     .word -1, 0, 1, 2
+     .word 0, 1, 2, 3
+     .word 1, 2, 3, -3
+B00: .word -2, 0, 2, -1
+     .word -1, 1, -2, 0
+     .word 0, 2, -1, 1
+     .word 1, -2, 0, 2
+B10: .word 2, -1, 1, -2
+     .word -2, 0, 2, -1
+     .word -1, 1, -2, 0
+     .word 0, 2, -1, 1
+B01: .word 1, -2, 0, 2
+     .word 2, -1, 1, -2
+     .word -2, 0, 2, -1
+     .word -1, 1, -2, 0
+B11: .word 0, 2, -1, 1
+     .word 1, -2, 0, 2
+     .word 2, -1, 1, -2
+     .word -2, 0, 2, -1
+C0:  .space 128
+C1:  .space 128
+.text
+    la      a0, A0
+    la      a1, A1
+    tpu.rdhost 0, (a0), 8       # UB[0..7] = A0
+    tpu.rdhost 8, (a1), 8       # UB[8..15] = A1
+    la      a2, B00
+    tpu.rdw    (a2)             # B00
+    la      a2, B10
+    tpu.rdw    (a2)             # B10
+    tpu.matmul 0, 0, 8          # ACC[0..7] = A0 x B00
+    tpu.matmul.acc 0, 8, 8      # ACC[0..7] += A1 x B10
+    la      a2, B01
+    tpu.rdw    (a2)             # B01
+    la      a2, B11
+    tpu.rdw    (a2)             # B11
+    tpu.matmul 8, 0, 8          # ACC[8..15] = A0 x B01
+    tpu.matmul.acc 8, 8, 8      # ACC[8..15] += A1 x B11
+    tpu.act    0, 0, 8, none    # UB[0..7] = C0
+    tpu.act    8, 8, 8, none    # UB[8..15] = C1
+    la      a3, C0
+    tpu.wrhost (a3), 0, 8
+    la      a3, C1
+    tpu.wrhost (a3), 8, 8
 `,
     },
 ];

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { simulate } from '../js/simulator.js';
 import { runGpuReference, immediatePostDominators, DEFAULT_GPU } from '../js/riscv/gpu.js';
+import { bankConflict } from '../js/models/gpu.js';
 import { asm, GPU_CONFIGS, assertMatchesReference } from './helpers.js';
 
 const gpu = (src, cfg = {}) => {
@@ -101,11 +102,18 @@ export function generateGpu(seed) {
     const pick = (a) => a[Math.floor(rnd() * a.length)];
     const R = ['t0', 't1', 't2', 't3', 'a0', 'a1'];
     let label = 0;
+    // Memória compartilhada: cada thread tem uma fatia própria de `stride` palavras (s6); a palavra 0 das
+    // vizinhas só é lida entre duas barreiras, depois de cada thread escrever a sua.
+    const stride = pick([1, 2, 4]);
+    const useShared = rnd() < 0.6;
     const lines = ['.data', `inp: .word ${Array.from({ length: 64 }, () => int(-50, 50)).join(', ')}`, `finp: .float ${Array.from({ length: 8 }, () => (int(-40, 40) / 4).toFixed(2)).join(', ')}`,
-        'out: .space 2048', '.text', 'gpu.tid s0', 'gpu.ntid s1', 'la s2, inp', 'la s3, out', 'slli s4, s0, 5', 'add s4, s3, s4', 'la s5, finp', 'flw fa0, 0(s5)'];
+        'out: .space 8192', ...(useShared ? ['.shared', `sh: .space ${32 * stride * 4}`] : []), '.text', 'gpu.tid s0', 'gpu.ntid s1', 'la s2, inp', 'la s3, out', 'slli s4, s0, 5', 'add s4, s3, s4', 'la s5, finp', 'flw fa0, 0(s5)'];
+    if (useShared) lines.push('gpu.btid s8', 'la s7, sh', `slli s6, s8, ${Math.log2(stride * 4)}`, 'add s6, s7, s6');
     const op = () => {
         const k = rnd();
         const rd = pick(R), a = pick([...R, 's0']), b = pick([...R, 's0']);
+        if (useShared && k < 0.08) return [`sw ${a}, ${int(0, stride - 1) * 4}(s6)`];
+        if (useShared && k < 0.14) return [`lw ${rd}, ${int(0, stride - 1) * 4}(s6)`];
         if (k < 0.35) return [`${pick(['add', 'sub', 'xor', 'and', 'mul', 'slt'])} ${rd}, ${a}, ${b}`];
         if (k < 0.5) return [`addi ${rd}, ${a}, ${int(-9, 9)}`];
         if (k < 0.6) return [`lw ${rd}, ${int(0, 63) * 4}(s2)`];
@@ -132,6 +140,10 @@ export function generateGpu(seed) {
                 out.push(`andi ${cnt}, ${pick(['s0', ...R])}, 3`, `addi ${cnt}, ${cnt}, 1`, `${l}:`, ...block(depth + 1), `addi ${cnt}, ${cnt}, -1`, `bnez ${cnt}, ${l}`);
             } else if (k < 0.36 && depth === 0) {
                 out.push('gpu.bar');
+            } else if (useShared && k < 0.42 && depth === 0) {
+                const rd = pick(R);
+                out.push(`sw ${pick([...R, 's0'])}, 0(s6)`, 'gpu.bar', `xori t4, s8, ${pick([1, 2, 3])}`, `slli t4, t4, ${Math.log2(stride * 4)}`,
+                    'add t4, s7, t4', `lw ${rd}, 0(t4)`, 'gpu.bar');
             } else if (k < 0.38 && depth === 1) {
                 out.push(`sw s0, 0(s4)`, 'ecall');
             } else {
@@ -158,4 +170,51 @@ test('programas aleatórios: GPU = referência (threads em sequência) e regras 
             }
         }
     }
+});
+
+test('blocos: identificadores, memória compartilhada separada e ocupação', () => {
+    const src = '.shared\ns: .space 64\n.text\ngpu.bid a0\ngpu.nbid a1\ngpu.btid a2\ngpu.bdim a3\ngpu.wid a4\nla t0, s\nlw t1, 0(t0)\naddi t1, t1, 1\nsw t1, 0(t0)\ngpu.bar\nlw a5, 0(t0)';
+    const r = runGpuReference(asm(src), { ...DEFAULT_GPU, blocks: 3, warps: 2, warpSize: 2 });
+    assert.deepEqual(r.threads.map((th) => [10, 11, 12, 13, 14].map((i) => Number(th.x[i]))).slice(0, 6), [
+        [0, 3, 0, 4, 0], [0, 3, 1, 4, 0], [0, 3, 2, 4, 1], [0, 3, 3, 4, 1], [1, 3, 0, 4, 0], [1, 3, 1, 4, 0],
+    ]);
+    // Cada bloco começa com a compartilhada zerada: o contador chega a 4 (threads do bloco), não a 12.
+    assert.ok(r.threads.every((th) => th.x[15] === 4n));
+    const sim = gpu(src, { gpu: { blocks: 3, warps: 2, warpSize: 2, maxWarps: 4 } });
+    assert.equal(sim.stats.maxResident, 2);
+    assert.ok(sim.blocks[2].start > Math.min(sim.blocks[0].end, sim.blocks[1].end));
+    // A compartilhada também limita: 64 bytes por bloco em um SM de 64 bytes deixa um bloco por vez.
+    assert.equal(gpu(src, { gpu: { blocks: 3, warps: 2, warpSize: 2, maxWarps: 8, smemBytes: 64 } }).stats.maxResident, 1);
+});
+
+test('conflitos de banco na memória compartilhada', () => {
+    const acc = (addrs) => addrs.map((a) => ({ addr: BigInt(a), size: 4 }));
+    assert.equal(bankConflict(acc([0, 4, 8, 12, 16, 20, 24, 28]), 8).degree, 1);
+    assert.equal(bankConflict(acc([0, 8, 16, 24, 32, 40, 48, 56]), 8).degree, 2);
+    assert.equal(bankConflict(acc([0, 32, 64, 96, 128, 160, 192, 224]), 8).degree, 8);
+    assert.equal(bankConflict(acc([0, 0, 0, 0, 0, 0, 0, 0]), 8).degree, 1);
+    const src = (stride) => `.shared\ns: .space 1024\n.text\ngpu.lane t0\nslli t0, t0, ${stride}\nla t1, s\nadd t1, t1, t0\nsw t0, 0(t1)`;
+    const s1 = gpu(src(2), { gpu: { warps: 1, warpSize: 8, smemBanks: 8, smemLatency: 2 } });
+    const s8 = gpu(src(5), { gpu: { warps: 1, warpSize: 8, smemBanks: 8, smemLatency: 2 } });
+    assert.equal(s1.dyn[5].timing.occ, 1);
+    assert.equal(s8.dyn[5].timing.occ, 8);
+    assert.equal(s8.stats.bankConflicts, 7);
+});
+
+test('cache L1: a segunda leitura da mesma linha acerta', () => {
+    const src = '.data\n.align 5\nv: .space 64\n.text\ngpu.lane t0\nslli t0, t0, 2\nla t1, v\nadd t1, t1, t0\nlw t2, 0(t1)\nlw t3, 0(t1)';
+    const sim = gpu(src, { gpu: { warps: 1, warpSize: 8, memLatency: 20, l1: true, l1Latency: 3 } });
+    const [a, b] = [sim.dyn[5], sim.dyn[6]];
+    assert.equal(a.timing.lat, 20);
+    assert.equal(sim.stats.l1Hits, 1);
+    // A segunda leitura acerta, mas a linha ainda está chegando: espera os dados da primeira.
+    assert.ok(b.commit >= a.commit);
+    const off = gpu(src, { gpu: { warps: 1, warpSize: 8, memLatency: 20 } });
+    assert.equal(off.stats.l1Hits, 0);
+});
+
+test('memória compartilhada: acesso fora da seção declarada', () => {
+    const sim = gpu('.shared\ns: .space 8\n.text\nla t0, s\nlw t1, 8(t0)', { gpu: { warps: 1, warpSize: 2 } });
+    assert.equal(sim.warnings.length, 1);
+    assert.match(asm('.shared\ns: .space 8\n.text\nnop').shared.size.toString(), /8/);
 });

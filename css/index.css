@@ -2062,3 +2062,124 @@ code.tagged {
     background: var(--focus-soft);
     font-weight: 600;
 }
+
+/* GPU: blocos da grade e memória compartilhada */
+.gblock-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.gblock {
+    padding: 2px 6px;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    font-family: var(--mono, monospace);
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.gblock.running {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--ink);
+}
+
+.gblock.done {
+    background: var(--ok-soft);
+    opacity: 0.7;
+}
+
+.smem-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.panel.gblocks, .panel.smem {
+    flex: none;
+}
+
+/* Comparação entre modelos */
+.models-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0 12px;
+}
+
+table.models th .sub {
+    display: block;
+    font-weight: normal;
+}
+
+table.models tr.best th:first-child {
+    color: var(--ok);
+}
+
+table.models td.bar-cell {
+    width: 30%;
+    min-width: 120px;
+}
+
+.mbar {
+    display: block;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--accent);
+}
+
+.mbar-gpu {
+    background: var(--ok);
+}
+
+.mbar-tpu {
+    background: var(--focus);
+}
+
+table.sbanks td.lab {
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+table.models td.metric {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+/* Perguntas do exercício */
+ol.questions {
+    display: grid;
+    gap: 8px;
+    padding-left: 1.4em;
+}
+
+ol.questions li span {
+    margin-right: 8px;
+}
+
+ol.questions input.qans {
+    width: 9em;
+    font: inherit;
+    font-family: var(--mono, monospace);
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 3px 5px;
+}
+
+ol.questions input.right {
+    background: var(--ok-soft);
+    border-color: var(--ok);
+}
+
+ol.questions input.wrong {
+    background: var(--bad-soft);
+    border-color: var(--warn);
+}
+
+ol.questions input.revealed {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+}

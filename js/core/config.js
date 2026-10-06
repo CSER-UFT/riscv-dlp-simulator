@@ -4,7 +4,7 @@
  */
 import { VECTOR_CLASSES } from '../riscv/vector.js';
 import { DEFAULT_TPU } from '../riscv/tpu.js';
-import { DEFAULT_GPU, SCHEDULERS } from '../riscv/gpu.js';
+import { DEFAULT_GPU, SCHEDULERS, MAX_THREADS } from '../riscv/gpu.js';
 import { t } from '../i18n/index.js';
 
 /** Modelos, na ordem de exibição. */
@@ -53,17 +53,31 @@ const intIn = (v, lo, hi, def) => {
 const bool = (v, def) => (v === undefined ? def : Boolean(v));
 const isPow2 = (n) => n > 0 && (n & (n - 1)) === 0;
 
-function normalizeGpu(pg) {
+function normalizeGpu(pg, errors) {
     const d = DEFAULT_GPU;
     const warpSize = intIn(pg.warpSize, 1, 32, d.warpSize);
-    return {
-        warps: intIn(pg.warps, 1, 16, d.warps),
+    const warps = intIn(pg.warps, 1, 16, d.warps);
+    const g = {
+        warps,
         warpSize,
         lanes: Math.min(warpSize, intIn(pg.lanes, 1, 32, d.lanes)),
         scheduler: SCHEDULERS.includes(pg.scheduler) ? pg.scheduler : d.scheduler,
         memLatency: intIn(pg.memLatency, 1, 400, d.memLatency),
         lineBytes: [4, 8, 16, 32, 64, 128].includes(Number(pg.lineBytes)) ? Number(pg.lineBytes) : d.lineBytes,
+        blocks: intIn(pg.blocks, 1, 256, d.blocks),
+        maxWarps: intIn(pg.maxWarps, 1, 64, Math.max(d.maxWarps, warps)),
+        smemBytes: intIn(pg.smemBytes, 0, 65536, d.smemBytes),
+        smemBanks: [1, 2, 4, 8, 16, 32].includes(Number(pg.smemBanks)) ? Number(pg.smemBanks) : d.smemBanks,
+        smemLatency: intIn(pg.smemLatency, 1, 100, d.smemLatency),
+        l1: bool(pg.l1, d.l1),
+        l1Bytes: [64, 128, 256, 512, 1024, 2048, 4096].includes(Number(pg.l1Bytes)) ? Number(pg.l1Bytes) : d.l1Bytes,
+        l1Ways: [1, 2, 4, 8].includes(Number(pg.l1Ways)) ? Number(pg.l1Ways) : d.l1Ways,
+        l1Latency: intIn(pg.l1Latency, 1, 100, d.l1Latency),
     };
+    if (g.blocks * g.warps * g.warpSize > MAX_THREADS) errors.push(t('config.tooManyThreads', { n: g.blocks * g.warps * g.warpSize, max: MAX_THREADS }));
+    if (g.warps > g.maxWarps) errors.push(t('config.blockWarps', { w: g.warps, max: g.maxWarps }));
+    if (g.l1 && g.l1Bytes < g.lineBytes * g.l1Ways) errors.push(t('config.l1Small'));
+    return g;
 }
 
 function normalizeTpu(pt) {
@@ -102,9 +116,11 @@ export function normalizeConfig(partial = {}) {
             units: [],
         },
         tpu: normalizeTpu(partial.tpu ?? {}),
-        gpu: normalizeGpu(partial.gpu ?? {}),
+        gpu: null,
         latency: {},
     };
+    const gpuErrors = [];
+    c.gpu = normalizeGpu(partial.gpu ?? {}, gpuErrors);
     if (!isPow2(c.vector.vlen)) errors.push(t('config.vlenPow2'));
     for (const k of [...SCALAR_LATENCY_IDS, ...VECTOR_LATENCY_IDS])
         c.latency[k] = intIn(partial.latency?.[k], 1, 100, d.latency[k]);
@@ -120,8 +136,8 @@ export function normalizeConfig(partial = {}) {
         c.vector.units.push({ name, classes, pipelined: bool(u.pipelined, true) });
     }
     if (c.vector.units.length === 0) errors.push(t('config.noUnits'));
-    // Erros da seção vetorial só importam no modelo vetorial.
-    return { config: c, errors: c.mode === 'vector' ? errors : [] };
+    // Erros de cada seção só importam no seu modelo.
+    return { config: c, errors: c.mode === 'vector' ? errors : c.mode === 'gpu' ? gpuErrors : [] };
 }
 
 /**
@@ -134,6 +150,9 @@ export function checkProgram(program, config) {
     const owner = (d) => (d.vector ? 'vector' : d.tpu ? 'tpu' : d.gpu ? 'gpu' : null);
     const foreign = program.instructions.find((i) => owner(i.def) && owner(i.def) !== config.mode);
     if (foreign) errors.push(t('config.wrongModel', { inst: foreign.text, line: foreign.line, model: t(`mode.${config.mode}`) }));
+    const smem = program.shared?.size ?? 0;
+    if (smem > 0 && config.mode !== 'gpu') errors.push(t('config.sharedOnlyGpu'));
+    if (config.mode === 'gpu' && smem > config.gpu.smemBytes) errors.push(t('config.sharedTooBig', { need: smem, have: config.gpu.smemBytes }));
     if (config.mode !== 'vector') return errors;
     const served = new Set(config.vector.units.flatMap((u) => u.classes));
     const missing = new Map();

@@ -312,7 +312,7 @@ export function simulateVector(program, userConfig = {}) {
         d.issue = c;
         d.first = op.first;
         d.commit = op.done;
-        d.timing = { t0: c, S: op.S, rate: op.rate, G: op.G, extra: op.extra, unit: op.unit, done: op.done, vector: op.vector };
+        d.timing = { t0: c, S: op.S, rate: op.rate, G: op.G, extra: op.extra, unit: op.unit, done: op.done, vector: op.vector, slots: op.fx.slots ?? null };
         stats.instructions++;
         const inst = op.inst;
         const fx = op.fx;

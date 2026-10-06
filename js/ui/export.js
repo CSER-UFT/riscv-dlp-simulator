@@ -5,6 +5,7 @@
  */
 import { t } from '../i18n/index.js';
 import { eventColumns, eventRows } from './events.js';
+import { answerText } from './questions.js';
 
 const csvCell = (s) => {
     const v = String(s ?? '');
@@ -81,6 +82,18 @@ export function eventsLatex(sim, blank = false) {
         out.push(`\\texttt{${tex(r.text)}} & ${cols.map((c) => (blank ? '' : tex(r.values[c.key] ?? ''))).join(' & ')} \\\\ \\hline`);
     out.push('\\end{tabular}', `\\caption{${tex(t(blank ? 'export.eventsBlankCaption' : 'export.eventsCaption', { model: t(`mode.${sim.model}`) }))}}`, '\\end{table}');
     return out.join('\n') + '\n';
+}
+
+/**
+ * Perguntas do exercício em LaTeX (lista numerada), com as respostas ou com espaço para responder.
+ * @param {{text: string, answer: *}[]} questions
+ */
+export function questionsLatex(questions, blank = false) {
+    const item = (q) => {
+        const text = tex(q.text).replace(/`([^`]+)`/g, '\\texttt{$1}');
+        return `  \\item ${text}${blank ? ' \\hfill \\underline{\\hspace{3cm}}' : ` \\textbf{${tex(answerText(q))}}`}`;
+    };
+    return ['', `% ${t('q.title')}`, '\\begin{enumerate}', ...questions.map(item), '\\end{enumerate}', ''].join('\n');
 }
 
 /** Oferece um texto para download. */
