@@ -16,6 +16,7 @@
  */
 import { signed, unsigned, f32ToBits, bitsToF32, f64ToBits, bitsToF64, floatToInt, fusedMulAdd } from './bits.js';
 import { registerVector, VECTOR_PSEUDO } from './vector.js';
+import { registerTpu } from './tpu.js';
 
 /** Classes de operação. A ordem define a ordem de exibição na configuração. */
 export const CLASSES = {
@@ -243,6 +244,9 @@ def('fcvt.d.s', { fmt: 'R2', cls: 'fadd', rd: 'f', rs1: 'f', rm: true, exec: (a)
 
 // Extensão V ------------------------------------------------------------------------------------------------
 registerVector(def);
+
+// TPU (instruções customizadas) -------------------------------------------------------------------------
+registerTpu(def);
 
 /**
  * Busca a definição de uma instrução.

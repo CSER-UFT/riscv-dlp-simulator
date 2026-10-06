@@ -5,6 +5,18 @@ import { t } from '../i18n/index.js';
 import { className, SCALAR_LATENCY_IDS } from '../core/config.js';
 
 export function configSummary(cfg) {
+    if (cfg.mode === 'tpu') {
+        const tc = cfg.tpu;
+        return [
+            t('mode.tpu'), `RV${cfg.xlen}`,
+            t('summary.tpuArray', { n: tc.n }),
+            t('summary.tpuBuffers', { ub: tc.ubRows, acc: tc.accRows, fifo: tc.fifoDepth }),
+            t('summary.tpuLat', { mem: tc.memLatency, act: tc.actLatency, mxu: 2 * tc.n - 1 }),
+            `${t('summary.scalarLat')}: ${SCALAR_LATENCY_IDS.map((k) => `${className(k)} ${cfg.latency[k]}`).join(', ')}`,
+            t('summary.branch', { n: cfg.branchPenalty }),
+            t('summary.clock', { f: cfg.freqGHz }),
+        ];
+    }
     const v = cfg.vector;
     const items = [
         t(`mode.${cfg.mode}`),

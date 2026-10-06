@@ -75,7 +75,7 @@ export default {
     <dd>Thousands of threads run in groups (warps) that share the same instruction (SIMT), with fast switching between groups to hide memory latency.</dd>
 </dl>
 <p><strong>Domain specific architectures</strong>, such as Google's TPU, take the idea further: a systolic array of multipliers dedicated to matrix multiplication.</p>
-<p class="tip">GPU and TPU models are planned for future versions of this simulator; for now, only the vector processor is available.</p>`,
+<p class="tip">The simulator has the vector processor and the TPU; the GPU model is planned.</p>`,
         },
         {
             id: 'rvv',
@@ -162,12 +162,50 @@ export default {
 <p>To observe the start up latency, compare a run with a small vl (time dominated by latency) and another with a large vl (dominated by vl ÷ lanes).</p>`,
         },
         {
+            id: 'tpu',
+            title: 'The TPU',
+            html: `
+<p>Google's TPU (<em>Tensor Processing Unit</em>) is an accelerator for neural networks. Its core is a <strong>matrix multiply unit</strong> organized as a <strong>systolic array</strong>: a grid of N × N processing elements, each with a multiplier and an adder, that pass data only to their neighbors. This simulator's model follows TPU v1 (Jouppi et al., ISCA 2017), driven by a scalar RISC-V core, with a configurable N (4 by default) and 32 bit integers.</p>
+<h3>Components</h3>
+<dl>
+    <dt>Unified Buffer (UB)</dt><dd>On chip memory with rows of N elements: the inputs of the multiplication and the outputs of the activation.</dd>
+    <dt>Weight queue</dt><dd>Holds N × N weight tiles read from memory, waiting to enter the array.</dd>
+    <dt>MXU</dt><dd>The systolic array. Each element (i, j) holds a weight W[i][j], which stays put during the whole multiplication (<em>weight stationary</em>).</dd>
+    <dt>Accumulators</dt><dd>Rows of N elements that receive the results from the array, replacing or adding to the previous value.</dd>
+    <dt>Activation</dt><dd>Applies the activation function (ReLU or none) and sends the result back to the Unified Buffer.</dd>
+</dl>
+<h3>How the systolic array computes</h3>
+<p>To multiply a row x by a weight tile W, element x[i] enters array row i from the left and moves right, one element per cycle. Each processing element multiplies the passing value by its weight and adds the value coming from above, passing the partial sum down. When it leaves the bottom of column j, the sum is y[j] = Σ x[i] × W[i][j]. Since the sum of column j has to meet x[i] at row i, inputs are <strong>skewed</strong>: row i receives each vector i cycles after row 0. In the diagram this shows up as a colored diagonal front crossing the array.</p>
+<p>Several input rows follow one another, one per cycle. A multiplication with R rows starts in cycle t0; row r is ready in the accumulators at the end of cycle t0 + r + 2N minus 2 (latency 2N minus 1), and the array works on up to 2N minus 1 rows at once.</p>
+<h3>Weights and double buffering</h3>
+<p>Before a multiplication, the weight tile enters the array, one row per cycle, in the N preceding cycles. The array is double buffered: the next tile enters while the previous one is still in use, but loading only starts once the previous multiplication has started. So two consecutive multiplications are at least max(R, N) cycles apart. With small batches (R less than N), the array spends most of its time waiting for weights: compare the <em>TPU: batch of 12 rows</em> and <em>TPU: small batch</em> examples. That is the same reason TPUs and GPUs process neural networks in batches.</p>
+<h3>Instructions</h3>
+<table>
+    <tr><th>Instruction</th><th>Unit</th><th>Effect</th></tr>
+    <tr><td><code>tpu.rdhost ub, (rs1), n</code></td><td>DMA</td><td>n rows from memory (address in rs1) to UB[ub] onward</td></tr>
+    <tr><td><code>tpu.rdw (rs1)</code></td><td>WDMA</td><td>one N × N weight tile from memory to the weight queue</td></tr>
+    <tr><td><code>tpu.matmul acc, ub, n</code></td><td>MXU</td><td>multiplies n rows of UB[ub] by the next tile in the queue; result in ACC[acc]</td></tr>
+    <tr><td><code>tpu.matmul.acc acc, ub, n</code></td><td>MXU</td><td>the same, adding to what is already in the accumulators</td></tr>
+    <tr><td><code>tpu.act ub, acc, n, f</code></td><td>ACT</td><td>applies f (<code>relu</code> or <code>none</code>) to n rows of ACC[acc] and writes them to UB[ub]</td></tr>
+    <tr><td><code>tpu.wrhost (rs1), ub, n</code></td><td>DMA</td><td>n rows of UB[ub] to memory</td></tr>
+</table>
+<p>In memory, a matrix is stored by rows, with N 32 bit integers (<code>.word</code>) per row; a weight tile is N consecutive rows. Each <code>tpu.matmul</code> consumes one tile from the queue, and a <code>tpu.rdw</code> only fits if the queue is not full. For K larger than N, split A into column blocks and B into row blocks and add the products with <code>tpu.matmul.acc</code> (example <em>K larger than the array</em>).</p>
+<h3>Timing</h3>
+<p>Instructions are issued in order by the scalar core, one per cycle, as in the vector processor, and each unit processes one row per cycle. DMA and WDMA have the memory latency; the activation, its own latency. Dependences are checked row by row in the Unified Buffer, the accumulators and the weight queue: the activation can read accumulator row 0 in the cycle after it is written, while the array still produces the following rows, and a second layer can start as soon as the activation writes the first rows into the buffer (example <em>two layer network</em>).</p>
+<h3>The diagram</h3>
+<p>On the left are issue, the scalar unit and the DMA, WDMA and ACT units; in the center, the weight queue and the array, with each element's weight (w), the input value passing through it (→) and the partial sum going down (Σ ↓), in the color of the input row; left of the array, the next values of each row, and below, the results leaving for the accumulators. On the right, the Unified Buffer and the accumulators, with the rows written in the step highlighted.</p>`,
+        },
+        {
             id: 'config',
             title: 'Configuration',
             html: `
 <dl>
     <dt>Model</dt>
-    <dd>For now, the vector processor.</dd>
+    <dd>Vector processor or TPU. The fields change with the model; scalar latencies, branch bubbles, frequency and cycle limit are shared.</dd>
+    <dt>TPU: array size, buffer and accumulator rows, tiles in the weight queue</dt>
+    <dd>The size N of the systolic array (2 to 16), how many rows the Unified Buffer and the accumulators have and how many weight tiles fit in the queue. See <a href="#h-tpu">The TPU</a>.</dd>
+    <dt>TPU: memory and activation latencies</dt>
+    <dd>Cycles between reading a row and writing it to its destination, in the DMA and WDMA units and in the activation. The array latency is always 2N minus 1.</dd>
     <dt>XLEN</dt>
     <dd>32 or 64 bits, the width of the scalar registers. RV64 only instructions (<code>ld</code>, <code>addw</code>...) require XLEN = 64.</dd>
     <dt>VLEN</dt>
@@ -214,6 +252,8 @@ export default {
     <tr><td>Moves</td><td><code>vmv.v.v</code>, <code>vmv.v.x</code>, <code>vmv.v.i</code>, <code>vfmv.v.f</code>, <code>vmv.x.s</code>, <code>vmv.s.x</code>, <code>vfmv.f.s</code>, <code>vfmv.s.f</code>, <code>vmerge</code>, <code>vfmerge</code>, <code>vid.v</code></td></tr>
     <tr><td>Pseudoinstructions</td><td><code>vneg.v</code>, <code>vnot.v</code>, <code>vfneg.v</code>, <code>vfabs.v</code>, <code>vmmv.m</code>, <code>vmnot.m</code>, <code>vmclr.m</code>, <code>vmset.m</code>, <code>vmsgt.vv</code>, <code>vmsge.vv</code>, <code>vmfgt.vv</code>, <code>vmfge.vv</code></td></tr>
 </table>
+<h3>TPU</h3>
+<p><code>tpu.rdhost</code>, <code>tpu.rdw</code>, <code>tpu.matmul</code>, <code>tpu.matmul.acc</code>, <code>tpu.act</code> and <code>tpu.wrhost</code>, described in <a href="#h-tpu">The TPU</a>. They can only be used in the TPU model, and vector instructions only in the vector processor.</p>
 <p>Operand order follows the specification: <code>vadd.vv vd, vs2, vs1</code> computes vs2 + vs1, and <code>vfmacc.vf vd, rs1, vs2</code> computes vd + rs1 × vs2. The address of a vector access is written in parentheses, without an offset: <code>vle32.v v1, (a0)</code>. The optional mask comes last: <code>vadd.vv v3, v1, v2, v0.t</code>.</p>`,
         },
         {
@@ -244,6 +284,8 @@ export default {
     <dd>For each unit, the fraction of available slots (cycles × lanes) in which an element entered.</dd>
     <dt>Stalls</dt>
     <dd>Cycles in which issue stalled, by reason, and bubbles caused by taken branches.</dd>
+    <dt>TPU</dt>
+    <dd>Multiply accumulates (MAC) done by the array, MAC per cycle, array usage (MAC divided by cycles × N², the average fraction of the array that worked) and the occupancy of each unit.</dd>
     <dt>Execution time</dt>
     <dd>Cycles ÷ frequency.</dd>
 </dl>`,
@@ -277,6 +319,7 @@ export default {
     <li>Issue stops at the first instruction that cannot start; there are no instruction queues for the vector units.</li>
     <li>There is no branch prediction: taken branches cost a fixed number of bubbles.</li>
     <li>There is no limit on vector register file ports.</li>
+    <li>TPU: 32 bit integers along the whole path (TPU v1 uses 8 bits for inputs and weights), a single activation per instruction (ReLU or none) and weights read from the same memory as the data.</li>
     <li>Values are computed when the instruction reaches issue, in program order; the displayed state changes in the cycles in which each element is written. The final state is checked against a functional reference simulator.</li>
 </ul>`,
         },

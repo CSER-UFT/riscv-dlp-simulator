@@ -8,7 +8,7 @@ import { getLanguage } from '../i18n/index.js';
 const CONTENT = { pt, en };
 
 /** Seção da ajuda correspondente a cada modelo de processador. */
-export const MODEL_SECTION = { vector: 'vector' };
+export const MODEL_SECTION = { vector: 'vector', tpu: 'tpu' };
 
 const normalize = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 

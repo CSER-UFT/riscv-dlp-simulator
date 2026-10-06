@@ -1815,3 +1815,124 @@ code.tagged {
 .panel table.vregs tr.focus th {
     color: var(--accent);
 }
+
+/* TPU ----------------------------------------------------------------------------------------------------- */
+
+.tpu-core {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    flex: none;
+}
+
+.panel.unit.small {
+    min-width: 0;
+}
+
+.panel.systolic .note,
+.panel.fifo .note {
+    max-width: 520px;
+}
+
+.panel.systolic.busy {
+    border-color: var(--line-strong);
+}
+
+.panel table.systolic {
+    border-collapse: separate;
+    border-spacing: 4px;
+}
+
+.panel table.systolic th {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-weight: 500;
+    text-align: center;
+    border: 0;
+}
+
+.panel table.systolic th.inq {
+    text-align: right;
+    min-width: 96px;
+    white-space: nowrap;
+}
+
+.panel table.systolic td.pe {
+    width: 82px;
+    height: 62px;
+    vertical-align: top;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 3px 5px;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    position: relative;
+}
+
+.panel table.systolic td.pe.on {
+    background: color-mix(in srgb, var(--tag) calc(var(--tag-bg) + 6%), var(--panel));
+    border-color: color-mix(in srgb, var(--tag) 70%, var(--line));
+}
+
+.panel table.systolic td.pe span {
+    display: block;
+    white-space: nowrap;
+}
+
+.panel table.systolic .w {
+    color: var(--muted);
+    font-size: 0.72rem;
+}
+
+.panel table.systolic .w::before {
+    content: 'w ';
+}
+
+.panel table.systolic .x {
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.panel table.systolic .ps {
+    color: var(--accent);
+}
+
+.panel table.systolic td.out {
+    text-align: center;
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 0.8rem;
+    border: 0;
+    color: color-mix(in srgb, var(--tag) 70%, var(--ink));
+}
+
+.panel table.systolic td.out .sub {
+    display: block;
+    margin: 0;
+    font-weight: 400;
+}
+
+.panel table.systolic .q {
+    display: inline-block;
+    min-width: 22px;
+    margin-left: 3px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--tag) calc(var(--tag-bg) + 6%), var(--panel));
+}
+
+.panel table.buf td {
+    min-width: 44px;
+    font-family: var(--mono);
+    text-align: right;
+}
+
+.panel table.buf tr.new td {
+    background: var(--focus-soft);
+    font-weight: 600;
+}

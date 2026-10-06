@@ -9,6 +9,7 @@ import { index } from './registers.js';
 import * as memory from './memory.js';
 import { TEXT_BASE, STACK_TOP } from './parser.js';
 import { createVectorRegs, execVector, VectorError } from './vector.js';
+import { createTpuState, execTpu, TpuError, DEFAULT_TPU } from './tpu.js';
 
 /** VLEN padrão (bits por registrador vetorial). */
 export const DEFAULT_VLEN = 256;
@@ -56,9 +57,9 @@ export function exampleRegisters(program) {
 /**
  * Estado arquitetural inicial.
  * @param {object} program resultado de assemble()
- * @param {{exampleValues?: boolean, vlen?: number}} options
+ * @param {{exampleValues?: boolean, vlen?: number, tpu?: object}} options
  */
-export function initialState(program, { exampleValues = true, vlen = DEFAULT_VLEN } = {}) {
+export function initialState(program, { exampleValues = true, vlen = DEFAULT_VLEN, tpu = DEFAULT_TPU } = {}) {
     const x = new Array(32).fill(0n);
     const f = new Array(32).fill(0);
     x[2] = BigInt(STACK_TOP);
@@ -70,7 +71,7 @@ export function initialState(program, { exampleValues = true, vlen = DEFAULT_VLE
     }
     for (const [r, v] of program.init.x) x[index(r)] = signed(v, program.xlen);
     for (const [r, v] of program.init.f) f[index(r)] = v;
-    return { x, f, v: createVectorRegs(vlen), vl: 0, vtype: null, mem: new Map(program.data) };
+    return { x, f, v: createVectorRegs(vlen), vl: 0, vtype: null, tpu: createTpuState(tpu), mem: new Map(program.data) };
 }
 
 /** Lê um registrador do estado arquitetural (x0 vale sempre zero). */
@@ -117,9 +118,9 @@ export function resolveControl(inst, a, b, xlen) {
  * Simulador funcional de referência.
  * @returns {{x: bigint[], f: number[], v: number[][], vl: number, vtype: object, mem: Map, executed: number, reason: string}}
  */
-export function runReference(program, { exampleValues = true, maxInstructions = 100000, vlen = DEFAULT_VLEN } = {}) {
+export function runReference(program, { exampleValues = true, maxInstructions = 100000, vlen = DEFAULT_VLEN, tpu = DEFAULT_TPU } = {}) {
     const xlen = program.xlen;
-    const st = initialState(program, { exampleValues, vlen });
+    const st = initialState(program, { exampleValues, vlen, tpu });
     let pc = TEXT_BASE;
     let executed = 0;
     let reason = 'fim do código';
@@ -134,11 +135,12 @@ export function runReference(program, { exampleValues = true, maxInstructions = 
         const c = readReg(st, inst.rs3);
         executed++;
         let next = pc + 4;
-        if (d.vector) {
+        if (d.vector || d.tpu) {
             try {
-                execVector(st, inst, xlen, vlen);
+                if (d.tpu) execTpu(st, inst, xlen, tpu);
+                else execVector(st, inst, xlen, vlen);
             } catch (e) {
-                if (!(e instanceof VectorError)) throw e;
+                if (!(e instanceof VectorError) && !(e instanceof TpuError)) throw e;
                 return { ...st, executed: executed - 1, reason: e.message, error: true };
             }
             pc = next;

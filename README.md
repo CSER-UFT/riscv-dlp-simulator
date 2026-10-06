@@ -9,7 +9,8 @@ O simulador roda inteiramente no navegador (HTML e JavaScript, sem dependências
 ## Modelos
 
 * **Processador vetorial**: um núcleo escalar em ordem acoplado a uma unidade vetorial com lanes, no estilo do RV64V de Hennessy e Patterson, executando a extensão V do RISC-V (RVV 1.0, LMUL = 1).
-* **GPU** (SIMT, com warps, divergência e escalonamento) e **TPU** (array sistólico): planejados.
+* **TPU**: um núcleo RISC-V escalar comandando uma unidade de multiplicação de matrizes com array sistólico N × N (pesos parados), Unified Buffer, fila de pesos, acumuladores e ativação, no estilo da TPU v1 do Google.
+* **GPU** (SIMT, com warps, divergência e escalonamento): planejada.
 
 ## Processador vetorial
 
@@ -24,6 +25,15 @@ O simulador roda inteiramente no navegador (HTML e JavaScript, sem dependências
 * **Vetorial**: `vsetvli` e `vsetivli` (e8, e16, e32 e e64); loads e stores unitários, com passo e indexados; aritmética inteira e de ponto flutuante nas formas `.vv`, `.vx`, `.vf` e `.vi`; multiplicação e soma (`vmacc`, `vfmacc`...); comparações e operações com máscara (`v0.t`); reduções; movimentação entre escalar e vetor; `vmerge`, `vid.v`, `vcpop.m`, `vfirst.m` e pseudoinstruções como `vneg.v` e `vmnot.m`.
 
 Simplificações: apenas LMUL = 1, com a largura dos acessos à memória igual ao SEW; cauda e elementos inativos sempre preservados; memória com latência fixa.
+
+## TPU
+
+* Instruções `tpu.rdhost`, `tpu.rdw`, `tpu.matmul`, `tpu.matmul.acc`, `tpu.act` e `tpu.wrhost`, emitidas pelo núcleo escalar.
+* Dimensão do array, linhas do Unified Buffer e dos acumuladores, tamanho da fila de pesos e latências configuráveis.
+* Array sistólico com entradas defasadas e somas parciais descendo pelas colunas (latência 2N menos 1), buffer duplo de pesos e dependências verificadas linha a linha, o que permite sobrepor multiplicação, ativação e a camada seguinte.
+* Diagrama com a frente diagonal de cálculo atravessando o array, o peso, a entrada e a soma parcial de cada elemento, a fila de pesos, o Unified Buffer e os acumuladores; estatísticas de MAC por ciclo e uso do array.
+
+Exemplos: C = ReLU(A × B), lote de 12 linhas, lote pequeno limitado pelos pesos, K maior que o array (acumulação) e rede de duas camadas.
 
 ## Recursos para aula
 
@@ -48,9 +58,12 @@ Clique em **Nova simulação**, escolha um exemplo ou escreva o programa, ajuste
 ```
 js/riscv/isa.js          tabela declarativa das instruções escalares
 js/riscv/vector.js       instruções vetoriais e executor funcional (acessos por elemento)
+js/riscv/tpu.js          instruções da TPU e executor funcional (acessos por linha)
 js/riscv/parser.js       montador: rótulos, pseudoinstruções, diretivas, sintaxe vetorial, erros por linha
 js/riscv/machine.js      estado inicial e simulador funcional de referência
+js/models/host.js        núcleo escalar comum aos modelos
 js/models/vector.js      modelo temporal do processador vetorial
+js/models/tpu.js         modelo temporal da TPU
 js/core/config.js        configuração padrão e validação
 js/core/recorder.js      passos, linha do tempo e instantâneos com compartilhamento estrutural
 js/i18n/                 textos da interface em português e inglês
@@ -68,7 +81,7 @@ Requer Node.js 20 ou mais recente, sem dependências.
 npm test
 ```
 
-A suíte verifica o montador, a semântica das instruções escalares e vetoriais, os dicionários de tradução, a ajuda, os exemplos e o comportamento temporal em programas com ciclos calculados à mão (encadeamento, conflitos estruturais, unidades sem pipeline, acessos com passo, reduções, WAR, WAW, dependência pela memória e desvios). O teste principal gera programas aleatórios com instruções escalares e vetoriais e, em dez configurações de hardware, compara o estado final com o do simulador funcional de referência e confere de forma independente, bit a bit e endereço a endereço, as regras de tempo de cada instrução. A quantidade de programas aleatórios pode ser alterada com a variável `RANDOM_PROGRAMS`.
+A suíte verifica o montador, a semântica das instruções escalares e vetoriais, os dicionários de tradução, a ajuda, os exemplos e o comportamento temporal em programas com ciclos calculados à mão (encadeamento, conflitos estruturais, unidades sem pipeline, acessos com passo, reduções, WAR, WAW, dependência pela memória e desvios). Os testes principais geram programas aleatórios (escalares e vetoriais, ou escalares e da TPU) e, em várias configurações de hardware, compara o estado final com o do simulador funcional de referência e confere de forma independente, bit a bit, linha a linha e endereço a endereço, as regras de tempo de cada instrução. A quantidade de programas aleatórios pode ser alterada com a variável `RANDOM_PROGRAMS`.
 
 ## Execução local
 

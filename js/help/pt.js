@@ -76,7 +76,7 @@ export default {
     <dd>Milhares de threads executadas em grupos (warps) que compartilham a mesma instrução (SIMT), com troca rápida entre grupos para esconder a latência da memória.</dd>
 </dl>
 <p>As <strong>arquiteturas de domínio específico</strong>, como a TPU do Google, levam a ideia mais longe: um array sistólico de multiplicadores dedicado à multiplicação de matrizes.</p>
-<p class="tip">Os modelos de GPU e de TPU estão planejados para versões futuras deste simulador; por enquanto, só o processador vetorial está disponível.</p>`,
+<p class="tip">O simulador tem o processador vetorial e a TPU; o modelo de GPU está planejado.</p>`,
         },
         {
             id: 'rvv',
@@ -163,12 +163,50 @@ export default {
 <p>Para observar a latência de partida, compare uma execução com vl pequeno (o tempo é dominado pela latência) e outra com vl grande (dominado por vl ÷ lanes).</p>`,
         },
         {
+            id: 'tpu',
+            title: 'A TPU',
+            html: `
+<p>A TPU (<em>Tensor Processing Unit</em>) do Google é um acelerador para redes neurais. O coração dela é uma <strong>unidade de multiplicação de matrizes</strong> organizada como um <strong>array sistólico</strong>: uma grade de N × N elementos de processamento, cada um com um multiplicador e um somador, que passam dados apenas para os vizinhos. O modelo deste simulador segue a TPU v1 (Jouppi et al., ISCA 2017), comandada por um núcleo RISC-V escalar, com N configurável (4 por padrão) e inteiros de 32 bits.</p>
+<h3>Componentes</h3>
+<dl>
+    <dt>Unified Buffer (UB)</dt><dd>Memória interna com linhas de N elementos: as entradas da multiplicação e as saídas da ativação.</dd>
+    <dt>Fila de pesos</dt><dd>Guarda blocos de pesos N × N lidos da memória, à espera de entrar no array.</dd>
+    <dt>MXU</dt><dd>O array sistólico. Cada elemento (i, j) guarda um peso W[i][j], que fica parado durante toda a multiplicação (<em>weight stationary</em>).</dd>
+    <dt>Acumuladores</dt><dd>Linhas de N elementos que recebem os resultados do array, substituindo ou somando ao valor anterior.</dd>
+    <dt>Ativação</dt><dd>Aplica a função de ativação (ReLU ou nenhuma) e devolve o resultado ao Unified Buffer.</dd>
+</dl>
+<h3>Como o array sistólico calcula</h3>
+<p>Para multiplicar uma linha x por um bloco de pesos W, o elemento x[i] entra pela esquerda na linha i do array e segue para a direita, um elemento por ciclo. Cada elemento de processamento multiplica o valor que passa pelo seu peso e soma ao valor que chega de cima, passando a soma parcial para baixo. Ao sair pela base da coluna j, a soma é y[j] = Σ x[i] × W[i][j]. Como a soma da coluna j precisa encontrar x[i] na linha i, as entradas são <strong>defasadas</strong>: a linha i recebe cada vetor i ciclos depois da linha 0. No diagrama, isso aparece como uma frente diagonal colorida que atravessa o array.</p>
+<p>Várias linhas de entrada seguem uma atrás da outra, uma por ciclo. Uma multiplicação com R linhas começa no ciclo t0; a linha r fica pronta nos acumuladores no fim do ciclo t0 + r + 2N menos 2 (latência 2N menos 1), e o array trabalha com até 2N menos 1 linhas ao mesmo tempo.</p>
+<h3>Pesos e buffer duplo</h3>
+<p>Antes de uma multiplicação, o bloco de pesos entra no array, uma linha por ciclo, nos N ciclos anteriores. O array tem um buffer duplo: o bloco seguinte entra enquanto o anterior ainda é usado, mas a carga só começa quando a multiplicação anterior começou. Por isso duas multiplicações seguidas ficam separadas por pelo menos max(R, N) ciclos. Com lotes pequenos (R menor que N), o array passa a maior parte do tempo esperando pesos: compare os exemplos <em>TPU: lote de 12 linhas</em> e <em>TPU: lote pequeno</em>. É o mesmo motivo pelo qual TPUs e GPUs processam redes neurais em lotes.</p>
+<h3>Instruções</h3>
+<table>
+    <tr><th>Instrução</th><th>Unidade</th><th>Efeito</th></tr>
+    <tr><td><code>tpu.rdhost ub, (rs1), n</code></td><td>DMA</td><td>n linhas da memória (endereço em rs1) para UB[ub] em diante</td></tr>
+    <tr><td><code>tpu.rdw (rs1)</code></td><td>WDMA</td><td>um bloco de pesos N × N da memória para a fila de pesos</td></tr>
+    <tr><td><code>tpu.matmul acc, ub, n</code></td><td>MXU</td><td>multiplica n linhas de UB[ub] pelo próximo bloco da fila; resultado em ACC[acc]</td></tr>
+    <tr><td><code>tpu.matmul.acc acc, ub, n</code></td><td>MXU</td><td>o mesmo, somando ao que já está nos acumuladores</td></tr>
+    <tr><td><code>tpu.act ub, acc, n, f</code></td><td>ACT</td><td>aplica f (<code>relu</code> ou <code>none</code>) a n linhas de ACC[acc] e escreve em UB[ub]</td></tr>
+    <tr><td><code>tpu.wrhost (rs1), ub, n</code></td><td>DMA</td><td>n linhas de UB[ub] para a memória</td></tr>
+</table>
+<p>Na memória, uma matriz fica guardada por linhas, com N inteiros de 32 bits (<code>.word</code>) por linha; um bloco de pesos são N linhas seguidas. Cada <code>tpu.matmul</code> consome um bloco da fila, e um <code>tpu.rdw</code> só cabe se a fila não estiver cheia. Para K maior que N, divida A em blocos de colunas e B em blocos de linhas e some os produtos com <code>tpu.matmul.acc</code> (exemplo <em>K maior que o array</em>).</p>
+<h3>Temporização</h3>
+<p>As instruções são emitidas em ordem pelo núcleo escalar, uma por ciclo, como no processador vetorial, e cada unidade processa uma linha por ciclo. DMA e WDMA têm a latência da memória; a ativação, a sua própria latência. As dependências são verificadas linha a linha no Unified Buffer, nos acumuladores e na fila de pesos: a ativação pode ler a linha 0 dos acumuladores no ciclo seguinte à sua escrita, enquanto o array ainda produz as linhas seguintes, e uma segunda camada pode começar assim que a ativação escreve as primeiras linhas no buffer (exemplo <em>rede de duas camadas</em>).</p>
+<h3>O diagrama</h3>
+<p>À esquerda ficam a emissão, a unidade escalar e as unidades DMA, WDMA e ACT; no centro, a fila de pesos e o array, com o peso de cada elemento (w), o valor de entrada que passa por ele (→) e a soma parcial que desce (Σ ↓), na cor da linha de entrada; à esquerda do array, os próximos valores de cada linha, e embaixo, os resultados que saem para os acumuladores. À direita, o Unified Buffer e os acumuladores, com as linhas escritas no passo destacadas.</p>`,
+        },
+        {
             id: 'config',
             title: 'Configuração',
             html: `
 <dl>
     <dt>Modelo</dt>
-    <dd>Por enquanto, o processador vetorial.</dd>
+    <dd>Processador vetorial ou TPU. Os campos mudam conforme o modelo; as latências escalares, as bolhas por desvio, a frequência e o limite de ciclos são comuns.</dd>
+    <dt>TPU: dimensão do array, linhas do buffer e dos acumuladores, blocos na fila de pesos</dt>
+    <dd>O tamanho N do array sistólico (de 2 a 16), quantas linhas têm o Unified Buffer e os acumuladores e quantos blocos de pesos cabem na fila. Veja <a href="#h-tpu">A TPU</a>.</dd>
+    <dt>TPU: latências da memória e da ativação</dt>
+    <dd>Ciclos entre a leitura de uma linha e a sua escrita no destino, nas unidades DMA e WDMA e na ativação. A latência do array é sempre 2N menos 1.</dd>
     <dt>XLEN</dt>
     <dd>32 ou 64 bits, a largura dos registradores escalares. Instruções exclusivas do RV64 (<code>ld</code>, <code>addw</code>...) exigem XLEN = 64.</dd>
     <dt>VLEN</dt>
@@ -215,6 +253,8 @@ export default {
     <tr><td>Movimentação</td><td><code>vmv.v.v</code>, <code>vmv.v.x</code>, <code>vmv.v.i</code>, <code>vfmv.v.f</code>, <code>vmv.x.s</code>, <code>vmv.s.x</code>, <code>vfmv.f.s</code>, <code>vfmv.s.f</code>, <code>vmerge</code>, <code>vfmerge</code>, <code>vid.v</code></td></tr>
     <tr><td>Pseudoinstruções</td><td><code>vneg.v</code>, <code>vnot.v</code>, <code>vfneg.v</code>, <code>vfabs.v</code>, <code>vmmv.m</code>, <code>vmnot.m</code>, <code>vmclr.m</code>, <code>vmset.m</code>, <code>vmsgt.vv</code>, <code>vmsge.vv</code>, <code>vmfgt.vv</code>, <code>vmfge.vv</code></td></tr>
 </table>
+<h3>TPU</h3>
+<p><code>tpu.rdhost</code>, <code>tpu.rdw</code>, <code>tpu.matmul</code>, <code>tpu.matmul.acc</code>, <code>tpu.act</code> e <code>tpu.wrhost</code>, descritas em <a href="#h-tpu">A TPU</a>. Só podem ser usadas no modelo TPU, e as instruções vetoriais só no processador vetorial.</p>
 <p>A ordem dos operandos segue a especificação: <code>vadd.vv vd, vs2, vs1</code> calcula vs2 + vs1, e <code>vfmacc.vf vd, rs1, vs2</code> calcula vd + rs1 × vs2. O endereço de um acesso vetorial é escrito entre parênteses, sem deslocamento: <code>vle32.v v1, (a0)</code>. A máscara opcional vem por último: <code>vadd.vv v3, v1, v2, v0.t</code>.</p>`,
         },
         {
@@ -245,6 +285,8 @@ export default {
     <dd>Para cada unidade, a fração das posições disponíveis (ciclos × lanes) em que entrou um elemento.</dd>
     <dt>Paradas</dt>
     <dd>Ciclos em que a emissão ficou parada, por motivo, e bolhas causadas por desvios tomados.</dd>
+    <dt>TPU</dt>
+    <dd>Multiplicações e somas (MAC) feitas pelo array, MAC por ciclo, uso do array (MAC dividido por ciclos × N², a fração do array que trabalhou em média) e a ocupação de cada unidade.</dd>
     <dt>Tempo de execução</dt>
     <dd>Ciclos ÷ frequência.</dd>
 </dl>`,
@@ -278,6 +320,7 @@ export default {
     <li>A emissão para na primeira instrução que não pode começar; não há filas de instruções para as unidades vetoriais.</li>
     <li>Não há previsão de desvios: desvios tomados custam um número fixo de bolhas.</li>
     <li>Não há limite de portas no banco de registradores vetoriais.</li>
+    <li>TPU: inteiros de 32 bits em todo o caminho (a TPU v1 usa 8 bits nas entradas e nos pesos), uma única ativação por instrução (ReLU ou nenhuma) e pesos lidos da mesma memória que os dados.</li>
     <li>Os valores são calculados quando a instrução chega à emissão, em ordem de programa; o estado exibido muda nos ciclos em que cada elemento é escrito. O estado final é verificado contra um simulador funcional de referência.</li>
 </ul>`,
         },

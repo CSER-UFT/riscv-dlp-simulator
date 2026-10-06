@@ -15,6 +15,7 @@
  */
 import { lookup } from './isa.js';
 import { VECTOR_PSEUDO, VECTOR_PSEUDO_ARITY, SEWS } from './vector.js';
+import { ACT_FUNCS } from './tpu.js';
 import { canonical, bank } from './registers.js';
 import { signed, unsigned, f32ToBits, f64ToBits } from './bits.js';
 import { writeRaw } from './memory.js';
@@ -487,6 +488,7 @@ export function assemble(source, { xlen = 32 } = {}) {
         const inst = {
             name, def: d, pc: ipc, rd: null, rs1: null, rs2: null, rs3: null, imm: 0, target: null, rm: null,
             vd: null, vs1: null, vs2: null, vs3: null, vm: false, vtype: null,
+            dst: null, src: null, rows: null, func: null,
         };
         const opsText = [];
         let rest = ops;
@@ -657,6 +659,20 @@ export function assemble(source, { xlen = 32 } = {}) {
                 case 'v0':
                     if (canonical(tok) !== 'v0') fail(t('asm.needV0', { tok }));
                     return opsText.push('v0');
+                case 'dst': case 'src': {
+                    inst[kind] = Number(immOperand(tok, ipc, 0n, 4095n, 'asm.what.row'));
+                    return opsText.push(`${inst[kind]}`);
+                }
+                case 'rows': {
+                    inst.rows = Number(immOperand(tok, ipc, 1n, 4096n, 'asm.what.rows'));
+                    return opsText.push(`${inst.rows}`);
+                }
+                case 'func': {
+                    const f = String(tok ?? '').toLowerCase();
+                    if (!ACT_FUNCS.includes(f)) fail(t('asm.badFunc', { tok }));
+                    inst.func = f;
+                    return opsText.push(f);
+                }
                 case 'vtype': {
                     inst.vtype = parseVtype(rest.slice(k));
                     return opsText.push(`e${inst.vtype.sew}, m1, ${inst.vtype.ta ? 'ta' : 'tu'}, ${inst.vtype.ma ? 'ma' : 'mu'}`);

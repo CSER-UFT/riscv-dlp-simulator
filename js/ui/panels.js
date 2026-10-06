@@ -38,10 +38,22 @@ export function createContext(sim) {
         if (d.kind === 'cmp' || d.kind === 'mlog') maskRegs.add(regs.index(inst.vd));
         if (inst.vm || d.kind === 'merge') maskRegs.add(0);
     }
+    // Linhas do Unified Buffer e dos acumuladores usadas pelas instruções da TPU.
+    const ubRows = new Set(), accRows = new Set();
+    for (const inst of sim.program.instructions) {
+        const k = inst.def.kind;
+        if (!inst.def.tpu || !inst.rows) continue;
+        const add = (set, first) => { for (let r = first; r < first + inst.rows; r++) set.add(r); };
+        if (k === 'rdhost') add(ubRows, inst.dst);
+        if (k === 'wrhost' || k === 'matmul') add(ubRows, inst.src);
+        if (k === 'matmul') add(accRows, inst.dst);
+        if (k === 'act') { add(accRows, inst.src); add(ubRows, inst.dst); }
+    }
     for (const r of sim.program.init.x.keys()) used.add(r);
     for (const r of sim.program.init.f.keys()) used.add(r);
     const dataLabels = new Map(sim.program.dataLabels.map((l) => [l.addr.toString(), l.name]));
-    return { sim, registers: [...used].sort(regs.compare), vregs: [...vused].sort((a, b) => a - b), fpRegs, maskRegs, dataLabels };
+    const sorted = (set) => [...set].sort((a, b) => a - b);
+    return { sim, registers: [...used].sort(regs.compare), vregs: sorted(vused), fpRegs, maskRegs, dataLabels, ubRows: sorted(ubRows), accRows: sorted(accRows) };
 }
 
 /** Banco de registradores escalares. */
@@ -82,29 +94,40 @@ export function statsRows(sim) {
     const s = sim.stats;
     const cfg = sim.config;
     const pct = (a, b) => (b > 0 ? `${fmtNum((100 * a) / b, 1)}%` : '-');
+    const per = (a) => fmtNum(s.cycles ? a / s.cycles : 0, 2);
     const rows = [
         [t('stats.cycles'), s.cycles],
         [t('stats.instructions'), s.instructions],
-        [t('stats.vectorInstructions'), s.vectorInstructions],
-        [t('stats.scalarInstructions'), s.scalarInstructions],
-        ['CPI', fmtNum(s.cpi, 2)],
-        [t('stats.elements'), s.elements],
-        [t('stats.elementsPerCycle'), fmtNum(s.cycles ? s.elements / s.cycles : 0, 2)],
-        [t('stats.flops'), s.flops],
-        [t('stats.flopsPerCycle'), fmtNum(s.cycles ? s.flops / s.cycles : 0, 2)],
     ];
+    if (sim.model === 'tpu') {
+        const n = cfg.tpu.n;
+        rows.push([t('stats.tpuInstructions'), s.tpuInstructions]);
+        rows.push([t('stats.scalarInstructions'), s.scalarInstructions]);
+        rows.push(['CPI', fmtNum(s.cpi, 2)]);
+        rows.push([t('stats.macs'), s.macs]);
+        rows.push([t('stats.macsPerCycle'), per(s.macs)]);
+        rows.push([t('stats.mxuUse'), pct(s.macs, s.cycles * n * n)]);
+        ['DMA', 'WDMA', 'MXU', 'ACT'].forEach((u, i) => rows.push([t('stats.unitBusy', { unit: u }), pct(s.unitBusy[i], s.cycles)]));
+    } else {
+        rows.push([t('stats.vectorInstructions'), s.vectorInstructions]);
+        rows.push([t('stats.scalarInstructions'), s.scalarInstructions]);
+        rows.push(['CPI', fmtNum(s.cpi, 2)]);
+        rows.push([t('stats.elements'), s.elements]);
+        rows.push([t('stats.elementsPerCycle'), per(s.elements)]);
+        rows.push([t('stats.flops'), s.flops]);
+        rows.push([t('stats.flopsPerCycle'), per(s.flops)]);
+        cfg.vector.units.forEach((u, i) => rows.push([t('stats.unitUse', { unit: u.name }), pct(s.unitSlots[i], s.cycles * cfg.vector.lanes)]));
+    }
     if (sim.timing) {
         rows.push([t('stats.frequency'), `${fmtNum(sim.timing.freqGHz, 3)} GHz`]);
         rows.push([t('stats.time'), `${fmtNum(sim.timing.timeNs, 2)} ns`]);
     }
-    cfg.vector.units.forEach((u, i) => {
-        rows.push([t('stats.unitUse', { unit: u.name }), pct(s.unitSlots[i], s.cycles * cfg.vector.lanes)]);
-    });
     const stall = (key, v) => { if (v > 0) rows.push([t(key), v]); };
     stall('stats.stallRaw', s.stallRaw);
     stall('stats.stallWar', s.stallWar);
     stall('stats.stallWaw', s.stallWaw);
     stall('stats.stallStruct', s.stallStruct);
+    stall('stats.stallWeights', s.stallWeights);
     stall('stats.stallScalar', s.stallScalar);
     stall('stats.stallMem', s.stallMem);
     stall('stats.bubbles', s.bubbles);

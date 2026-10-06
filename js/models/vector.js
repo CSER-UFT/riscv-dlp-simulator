@@ -19,8 +19,8 @@
  * ordem de programa); o estado exibido muda nos ciclos em que cada elemento é escrito.
  */
 import * as memory from '../riscv/memory.js';
-import { f32ToBits, f64ToBits } from '../riscv/bits.js';
-import { initialState, readReg, writeReg, effectiveAddress, indexAt, resolveControl } from '../riscv/machine.js';
+import { initialState, writeReg, indexAt } from '../riscv/machine.js';
+import { SCALAR_LAT, execScalar, rangeText } from './host.js';
 import { TEXT_BASE } from '../riscv/parser.js';
 import { index } from '../riscv/registers.js';
 import { execVector, VectorError, VECTOR_CLASSES } from '../riscv/vector.js';
@@ -28,9 +28,6 @@ import * as fmt from '../riscv/format.js';
 import { t } from '../i18n/index.js';
 import { normalizeConfig, checkProgram } from '../core/config.js';
 import { Recorder } from '../core/recorder.js';
-
-/** Latência escalar de cada classe. */
-const SCALAR_LAT = { alu: 'alu', branch: 'alu', jump: 'alu', vset: 'alu', system: 'alu', mul: 'mul', div: 'div', load: 'load', store: 'store', fadd: 'fadd', fmul: 'fmul', fdiv: 'fdiv' };
 
 /** Tipo de exibição dos elementos escritos por uma instrução: inteiro, ponto flutuante ou máscara. */
 function viewType(def) {
@@ -109,51 +106,6 @@ export function simulateVector(program, userConfig = {}) {
     const code = (op) => `\`${op.inst.text}\``;
     const R = (r) => `**${r}**`;
     const V = (x) => `//${fmt.value(x)}//`;
-
-    // Execução funcional ------------------------------------------------------------------------------------------
-
-    function execScalar(inst) {
-        const d = inst.def;
-        const fx = { slots: 1, reads: [], writes: [], mreads: [], mwrites: [], xreads: [], xwrite: null, active: 1, flops: 0, strided: false, end: false };
-        for (const r of [inst.rs1, inst.rs2, inst.rs3]) if (r) fx.xreads.push(r);
-        const a = readReg(fun, inst.rs1), b = readReg(fun, inst.rs2), c = readReg(fun, inst.rs3);
-        switch (d.cls) {
-            case 'system':
-                fx.system = true;
-                break;
-            case 'load': {
-                const addr = effectiveAddress(inst, a, xlen);
-                const value = memory.load(fun.mem, addr, d.mem, xlen);
-                writeReg(fun, inst.rd, value);
-                fx.mreads.push([0, addr, d.mem.size]);
-                fx.xwrite = { reg: inst.rd, value };
-                break;
-            }
-            case 'store': {
-                const addr = effectiveAddress(inst, a, xlen);
-                memory.store(fun.mem, addr, d.mem, b);
-                const raw = d.mem.fp === 's' ? f32ToBits(b) : (d.mem.fp === 'd' ? f64ToBits(b) : BigInt(b));
-                fx.mwrites.push([0, addr, d.mem.size, raw]);
-                break;
-            }
-            case 'branch': case 'jump': {
-                const r = resolveControl(inst, a, b, xlen);
-                if (r.value !== null) {
-                    writeReg(fun, inst.rd, r.value);
-                    fx.xwrite = { reg: inst.rd, value: r.value };
-                }
-                fx.next = r.next;
-                fx.taken = r.taken;
-                break;
-            }
-            default: {
-                const value = d.exec(a, b, inst, xlen, c);
-                writeReg(fun, inst.rd, value);
-                fx.xwrite = { reg: inst.rd, value };
-            }
-        }
-        return fx;
-    }
 
     // Tempo de cada elemento ---------------------------------------------------------------------------------------
 
@@ -299,7 +251,7 @@ export function simulateVector(program, userConfig = {}) {
         };
         let fx;
         try {
-            fx = inst.def.vector ? execVector(fun, inst, xlen, vc.vlen) : execScalar(inst);
+            fx = inst.def.vector ? execVector(fun, inst, xlen, vc.vlen) : execScalar(fun, inst, xlen);
         } catch (e) {
             if (!(e instanceof VectorError)) throw e;
             warnings.push(e.message);
@@ -456,18 +408,6 @@ export function simulateVector(program, userConfig = {}) {
         } else if (c === op.done && op.vector && fx.writes.length === 0 && fx.mwrites.length === 0) {
             step(t('vec.done', { inst: code(op) }), []);
         }
-    }
-
-    function rangeText(list) {
-        const out = [];
-        let i = 0;
-        while (i < list.length) {
-            let j = i;
-            while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
-            out.push(i === j ? `${list[i]}` : `${list[i]}..${list[j]}`);
-            i = j + 1;
-        }
-        return out.join(', ');
     }
 
     function label(op, c) {

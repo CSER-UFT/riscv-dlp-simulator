@@ -3,6 +3,7 @@ import { assemble } from '../js/riscv/parser.js';
 import { runReference, initialState, effectiveAddress, resolveControl } from '../js/riscv/machine.js';
 import * as memory from '../js/riscv/memory.js';
 import { execVector } from '../js/riscv/vector.js';
+import { execTpu } from '../js/riscv/tpu.js';
 import { simulate } from '../js/simulator.js';
 import { normalizeConfig } from '../js/core/config.js';
 
@@ -47,24 +48,38 @@ export const CONFIGS = {
     },
 };
 
+/** Configurações da TPU. */
+export const TPU_CONFIGS = {
+    'TPU padrão': { mode: 'tpu' },
+    'TPU 2 x 2': { mode: 'tpu', tpu: { n: 2 } },
+    'TPU 8 x 8, fila 4': { mode: 'tpu', tpu: { n: 8, fifoDepth: 4 } },
+    'TPU latências altas': { mode: 'tpu', branchPenalty: 2, tpu: { memLatency: 20, actLatency: 5 }, latency: { alu: 2, load: 4, store: 3 } },
+    'TPU latência 1': { mode: 'tpu', branchPenalty: 0, tpu: { memLatency: 1, actLatency: 1 } },
+};
+
 /** Compara o estado final do modelo com o simulador de referência e verifica as regras de tempo. */
 export function assertMatchesReference(program, config, label = '') {
     const cfg = normalizeConfig(config).config;
-    const ref = runReference(program, { exampleValues: cfg.exampleValues, vlen: cfg.vector.vlen });
+    const ref = runReference(program, { exampleValues: cfg.exampleValues, vlen: cfg.vector.vlen, tpu: cfg.tpu });
     const sim = simulate(program, { maxCycles: 50000, ...config });
     assert.deepEqual(sim.errors ?? [], [], `${label}: erros de configuração`);
     assert.ok(sim.finished, `${label}: a simulação não terminou (${sim.warnings.join(' ')})`);
     for (let i = 0; i < 32; i++) {
         assert.equal(sim.final.x[i], ref.x[i], `${label}: x${i} difere (modelo ${sim.final.x[i]}, referência ${ref.x[i]})`);
         assert.ok(Object.is(sim.final.f[i], ref.f[i]), `${label}: f${i} difere (modelo ${sim.final.f[i]}, referência ${ref.f[i]})`);
-        assert.deepEqual(sim.final.v[i], ref.v[i], `${label}: v${i} difere`);
+        if (sim.model === 'vector') assert.deepEqual(sim.final.v[i], ref.v[i], `${label}: v${i} difere`);
     }
-    assert.equal(sim.final.vl, ref.vl, `${label}: vl difere`);
+    if (sim.model === 'vector') assert.equal(sim.final.vl, ref.vl, `${label}: vl difere`);
+    if (sim.model === 'tpu') {
+        assert.deepEqual(sim.final.ub, ref.tpu.ub, `${label}: Unified Buffer difere`);
+        assert.deepEqual(sim.final.acc, ref.tpu.acc, `${label}: acumuladores diferem`);
+    }
     const addrs = new Set([...ref.mem.keys(), ...sim.final.mem.keys()]);
     for (const a of addrs)
         assert.equal(sim.final.mem.get(a) ?? 0, ref.mem.get(a) ?? 0, `${label}: memória em 0x${a.toString(16)} difere`);
     assert.equal(sim.dyn.length, ref.executed, `${label}: número de instruções executadas difere`);
-    checkTiming(sim, label);
+    if (sim.model === 'tpu') checkTpuTiming(sim, label);
+    else checkTiming(sim, label);
     return sim;
 }
 
@@ -170,4 +185,86 @@ function stepScalar(st, inst, xlen) {
         }
         default: return write(inst.rd, d.exec(a, b, inst, xlen, c));
     }
+}
+
+/**
+ * Verificação independente das regras de tempo da TPU: reexecuta o programa, calcula os ciclos de leitura e
+ * escrita de cada linha do Unified Buffer, dos acumuladores e da fila de pesos, e de cada byte de memória, e
+ * confere RAW, WAR, WAW, a ocupação das unidades e o buffer duplo de pesos.
+ */
+export function checkTpuTiming(sim, label = '') {
+    const cfg = sim.config;
+    const tc = cfg.tpu;
+    const N = tc.n;
+    const st = initialState(sim.program, { exampleValues: cfg.exampleValues, tpu: tc });
+    const W = new Map(), R = new Map(), MW = new Map(), MR = new Map(), XW = new Map();
+    const busy = new Map();
+    let lastMatmul = -Infinity;
+    let prev = 0;
+    const lat = { tdma: tc.memLatency, twload: tc.memLatency, tmxu: 2 * N - 1, tact: tc.actLatency };
+    for (const d of sim.dyn) {
+        const tm = d.timing;
+        assert.ok(tm.t0 > prev, `${label}: emissão fora de ordem (${d.text})`);
+        prev = tm.t0;
+        const inst = sim.program.instructions[d.index];
+        for (const r of [inst.rs1, inst.rs2, inst.rs3])
+            if (r && r !== 'x0' && XW.has(r)) assert.ok(tm.t0 > XW.get(r), `${label}: ${d.text} leu ${r} antes da escrita`);
+        if (!inst.def.tpu) {
+            if (inst.rd) XW.delete(inst.rd);
+            const fx = scalarAccesses(st, inst, sim.program.xlen);
+            const w = tm.t0 + tm.S - 1;
+            for (const [addr, size] of fx.mreads)
+                for (let i = 0n; i < BigInt(size); i++) if (MW.has(addr + i)) assert.ok(tm.t0 > MW.get(addr + i), `${label}: ${d.text} leu a memória antes da escrita`);
+            for (const [addr, size] of fx.mwrites)
+                for (let i = 0n; i < BigInt(size); i++) {
+                    if (MW.has(addr + i)) assert.ok(w > MW.get(addr + i), `${label}: ${d.text} escreveu a memória fora de ordem`);
+                    if (MR.has(addr + i)) assert.ok(w >= MR.get(addr + i), `${label}: ${d.text} escreveu a memória antes de uma leitura`);
+                }
+            for (const [addr, size] of fx.mreads) for (let i = 0n; i < BigInt(size); i++) MR.set(addr + i, Math.max(MR.get(addr + i) ?? -1, tm.t0));
+            for (const [addr, size] of fx.mwrites) for (let i = 0n; i < BigInt(size); i++) MW.set(addr + i, w);
+            continue;
+        }
+        const fx = execTpu(st, inst, sim.program.xlen, tc);
+        const S = lat[inst.def.cls];
+        assert.equal(tm.S, S, `${label}: latência de ${d.text}`);
+        const wt = (slot) => tm.t0 + slot + S - 1;
+        const rt = (e) => (e[2] === 'write' ? wt(e[0]) : tm.t0 + (e[2] ?? e[0]));
+        for (const e of fx.reads) if (W.has(e[1])) assert.ok(rt(e) > W.get(e[1]), `${label}: ${d.text} leu ${e[1]} no ciclo ${rt(e)}, escrito no ${W.get(e[1])}`);
+        for (const [slot, key] of fx.writes) {
+            if (W.has(key)) assert.ok(wt(slot) > W.get(key), `${label}: ${d.text} escreveu ${key} fora de ordem (WAW)`);
+            if (R.has(key)) assert.ok(wt(slot) >= R.get(key), `${label}: ${d.text} escreveu ${key} antes de uma leitura (WAR)`);
+        }
+        for (const [slot, addr, size] of fx.mreads)
+            for (let i = 0n; i < BigInt(size); i++) if (MW.has(addr + i)) assert.ok(tm.t0 + slot > MW.get(addr + i), `${label}: ${d.text} leu a memória antes da escrita`);
+        for (const [slot, addr, size] of fx.mwrites)
+            for (let i = 0n; i < BigInt(size); i++) {
+                if (MW.has(addr + i)) assert.ok(wt(slot) > MW.get(addr + i), `${label}: ${d.text} escreveu a memória fora de ordem`);
+                if (MR.has(addr + i)) assert.ok(wt(slot) >= MR.get(addr + i), `${label}: ${d.text} escreveu a memória antes de uma leitura`);
+            }
+        for (const e of fx.reads) R.set(e[1], Math.max(R.get(e[1]) ?? -1, rt(e)));
+        for (const [slot, key] of fx.writes) W.set(key, wt(slot));
+        for (const [slot, addr, size] of fx.mreads) for (let i = 0n; i < BigInt(size); i++) MR.set(addr + i, Math.max(MR.get(addr + i) ?? -1, tm.t0 + slot));
+        for (const [slot, addr, size] of fx.mwrites) for (let i = 0n; i < BigInt(size); i++) MW.set(addr + i, wt(slot));
+        if (inst.def.cls === 'tmxu') {
+            assert.ok(tm.t0 >= lastMatmul + N, `${label}: ${d.text} começou antes de o bloco de pesos entrar no array`);
+            lastMatmul = tm.t0;
+        }
+        const occ = [tm.t0, tm.t0 + Math.max(1, tm.G) - 1];
+        const list = busy.get(inst.def.cls) ?? [];
+        for (const [a, b] of list) assert.ok(occ[1] < a || occ[0] > b, `${label}: ${d.text} ocupou a unidade junto com outra instrução`);
+        list.push(occ);
+        busy.set(inst.def.cls, list);
+        assert.equal(tm.done, tm.G === 0 ? tm.t0 : tm.t0 + tm.G - 1 + S - 1, `${label}: conclusão de ${d.text}`);
+    }
+}
+
+/** Executa uma instrução escalar e devolve os acessos à memória (para checkTpuTiming). */
+function scalarAccesses(st, inst, xlen) {
+    const d = inst.def;
+    const read = (r) => (r === null ? null : r === 'x0' ? 0n : r[0] === 'x' ? st.x[+r.slice(1)] : st.f[+r.slice(1)]);
+    const out = { mreads: [], mwrites: [] };
+    if (d.cls === 'load') out.mreads.push([effectiveAddress(inst, read(inst.rs1), xlen), d.mem.size]);
+    if (d.cls === 'store') out.mwrites.push([effectiveAddress(inst, read(inst.rs1), xlen), d.mem.size]);
+    stepScalar(st, inst, xlen);
+    return out;
 }

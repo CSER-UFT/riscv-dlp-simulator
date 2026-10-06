@@ -98,7 +98,7 @@ test('números citados na ajuda para os exemplos', () => {
 });
 
 test('mais lanes nunca deixam um programa mais lento', () => {
-    for (const ex of EXAMPLES) {
+    for (const ex of EXAMPLES.filter((e) => e.config?.mode !== 'tpu')) {
         let prev = Infinity;
         for (const lanes of [1, 2, 4, 8]) {
             const c = run(ex.code, { vector: { lanes } }).stats.cycles;

@@ -117,7 +117,12 @@ export class Editor {
         this.template.value = ex.id;
         this.exampleId = ex.id;
         this.code.value = ex.code;
-        if (ex.config) this.setConfig({ ...this.readConfig(), ...ex.config });
+        if (ex.config) {
+            const cur = this.readConfig();
+            const merged = { ...cur, ...ex.config };
+            for (const k of ['vector', 'tpu']) if (ex.config[k]) merged[k] = { ...cur[k], ...ex.config[k] };
+            this.setConfig(merged);
+        }
         this.showErrors([]);
     }
 
@@ -192,18 +197,24 @@ export class Editor {
             <fieldset><legend>${t('ed.processor')}</legend>
                 <label class="field">${t('ed.model')}<select name="mode">${opt(MODE_IDS.map((m) => [m, t(`mode.${m}`)]), c.mode)}</select></label>
                 <label class="field">XLEN<select name="xlen">${opt([[32, 'RV32 (32 bits)'], [64, 'RV64 (64 bits)']], c.xlen)}</select></label>
-                <label class="field">VLEN<select name="vlen">${opt([64, 128, 256, 512, 1024].map((v) => [v, t('ed.vlenOption', { v, n: v / 32 })]), c.vector.vlen)}</select></label>
-                ${num('lanes', c.vector.lanes, 1, 64, t('ed.lanes'))}
-                ${check('chaining', c.vector.chaining, t('ed.chaining'))}
-                ${num('stridedRate', c.vector.stridedRate, 1, 64, t('ed.stridedRate'))}
+                <label class="field vec-only">VLEN<select name="vlen">${opt([64, 128, 256, 512, 1024].map((v) => [v, t('ed.vlenOption', { v, n: v / 32 })]), c.vector.vlen)}</select></label>
+                ${num('lanes', c.vector.lanes, 1, 64, t('ed.lanes'), 'vec-only')}
+                ${check('chaining', c.vector.chaining, t('ed.chaining'), 'vec-only')}
+                ${num('stridedRate', c.vector.stridedRate, 1, 64, t('ed.stridedRate'), 'vec-only')}
+                ${num('tpuN', c.tpu.n, 2, 16, t('ed.tpuN'), 'tpu-only')}
+                ${num('tpuUb', c.tpu.ubRows, 1, 256, t('ed.tpuUb'), 'tpu-only')}
+                ${num('tpuAcc', c.tpu.accRows, 1, 256, t('ed.tpuAcc'), 'tpu-only')}
+                ${num('tpuFifo', c.tpu.fifoDepth, 1, 8, t('ed.tpuFifo'), 'tpu-only')}
+                ${num('tpuMem', c.tpu.memLatency, 1, 100, t('ed.tpuMem'), 'tpu-only')}
+                ${num('tpuAct', c.tpu.actLatency, 1, 20, t('ed.tpuAct'), 'tpu-only')}
                 ${num('branchPenalty', c.branchPenalty, 0, 20, t('ed.branchPenalty'))}
             </fieldset>
-            <fieldset><legend>${t('ed.units')}</legend>
+            <fieldset class="vec-only"><legend>${t('ed.units')}</legend>
                 <table class="groups"><tr><th>${t('ed.unit')}</th><th>${t('ed.classes')}</th><th>${t('ed.pipelined')}</th><th></th></tr>${units}</table>
                 <button type="button" class="btn small" data-action="add-unit">${t('ed.addUnit')}</button>
                 <p class="note">${t('ed.unitsHelp')}</p>
             </fieldset>
-            <fieldset><legend>${t('ed.vectorLatencies')}</legend><div class="latencies">${lat(VECTOR_LATENCY_IDS)}</div>
+            <fieldset class="vec-only"><legend>${t('ed.vectorLatencies')}</legend><div class="latencies">${lat(VECTOR_LATENCY_IDS)}</div>
                 <p class="note">${t('ed.vectorLatHelp')}</p></fieldset>
             <fieldset><legend>${t('ed.scalarLatencies')}</legend><div class="latencies">${lat(SCALAR_LATENCY_IDS)}</div></fieldset>
             <fieldset><legend>${t('ed.simulation')}</legend>
@@ -218,6 +229,15 @@ export class Editor {
             this.bindUnitRows();
         });
         this.bindUnitRows();
+        this.configEl.querySelector('select[name="mode"]').addEventListener('change', () => this.updateModeFields());
+        this.updateModeFields();
+    }
+
+    /** Mostra só os campos do modelo escolhido. */
+    updateModeFields() {
+        const mode = this.configEl.querySelector('select[name="mode"]').value;
+        for (const el of this.configEl.querySelectorAll('.vec-only')) el.classList.toggle('hidden', mode !== 'vector');
+        for (const el of this.configEl.querySelectorAll('.tpu-only')) el.classList.toggle('hidden', mode !== 'tpu');
     }
 
     unitRow(u) {
@@ -255,6 +275,10 @@ export class Editor {
                     pipelined: row.querySelector('[name="u-pipelined"]').checked,
                     classes: [...row.querySelectorAll('.classes input:checked')].map((i) => i.value),
                 })),
+            },
+            tpu: {
+                n: n('tpuN'), ubRows: n('tpuUb'), accRows: n('tpuAcc'), fifoDepth: n('tpuFifo'),
+                memLatency: n('tpuMem'), actLatency: n('tpuAct'),
             },
             latency: {},
         };
