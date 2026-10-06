@@ -1,0 +1,6 @@
+.vscode/
+colorscheme.txt
+
+node_modules/
+yarn.lock
+.eslintrc.json

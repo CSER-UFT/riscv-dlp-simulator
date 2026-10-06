@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Simulador de Paralelismo de Dados RISC-V</title>
+        <meta name="description" content="Simulador didático de paralelismo em nível de dados com RISC-V: processador vetorial (extensão V), com lanes, encadeamento e máscaras." />
+        <link rel="icon" href="./svg/cpu.svg" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+        <link rel="stylesheet" type="text/css" href="./css/index.css" />
+        <script>
+            // Aplica o tema antes da primeira pintura, para não piscar.
+            try {
+                const theme = localStorage.getItem('dlp.theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                document.documentElement.dataset.theme = theme;
+            } catch { document.documentElement.dataset.theme = 'light'; }
+        </script>
+    </head>
+    <body>
+        <div id="workspace" class="screen">
+            <header id="header">
+                <div class="brand"><span class="icon i-cpu brand-mark" aria-hidden="true"></span><span class="brand-name" data-i18n-html="ui.appTitle">Simulador de Paralelismo de Dados <b>RISC-V</b></span></div>
+                <nav class="actions">
+                    <button type="button" id="open-novo" class="btn primary"><span class="icon i-new" aria-hidden="true"></span><span data-i18n="ui.new">Nova simulação</span></button>
+                    <button type="button" id="open-editar" class="btn hidden" data-i18n="ui.edit">Editar</button>
+                    <button type="button" id="open-comparar" class="btn hidden" data-i18n="ui.compare" data-i18n-title="ui.compareHelp">Comparar</button>
+                    <button type="button" id="open-exercicio" class="btn hidden" data-i18n="ui.exercise" data-i18n-title="ui.exerciseHelp">Exercício</button>
+                    <div id="export-menu" class="menu hidden">
+                        <button type="button" class="btn" data-i18n="ui.export">Exportar</button>
+                        <div class="menu-items">
+                            <button type="button" data-export="timeline-csv" data-i18n="ui.exp.timelineCsv">Linha do tempo (CSV)</button>
+                            <button type="button" data-export="timeline-tex" data-i18n="ui.exp.timelineTex">Linha do tempo (LaTeX)</button>
+                            <button type="button" data-export="events-csv" data-i18n="ui.exp.eventsCsv">Tabela de eventos (CSV)</button>
+                            <button type="button" data-export="events-tex" data-i18n="ui.exp.eventsTex">Tabela de eventos (LaTeX)</button>
+                            <button type="button" data-export="events-blank" data-i18n="ui.exp.eventsBlank">Tabela de eventos em branco (LaTeX)</button>
+                        </div>
+                    </div>
+                    <button type="button" id="copy-link" class="btn hidden" data-i18n="ui.copyLink" data-i18n-title="ui.copyLinkHelp">Copiar link</button>
+                </nav>
+                <div class="tools">
+                    <label class="lang"><span class="sr-only" data-i18n="ui.language">Idioma</span><select id="lang-select"></select></label>
+                    <button type="button" id="theme-toggle" class="btn icon-btn" data-i18n-title="ui.theme"><span class="icon i-moon" aria-hidden="true"></span><span class="sr-only" data-i18n="ui.theme">Alternar contraste</span></button>
+                    <button type="button" id="open-ajuda" class="btn" data-i18n="ui.help">Ajuda</button>
+                </div>
+            </header>
+            <div id="tab-names"><div id="tab-filler">&nbsp;</div></div>
+            <div id="tab-visual">
+                <div id="readme" class="readme"></div>
+                <div id="viewport">
+                    <div id="diagram"></div>
+                </div>
+                <div id="sheet" class="hidden"></div>
+                <div id="control">
+                    <div class="ctl-buttons">
+                        <button type="button" id="control-skip-back" class="control-button active" data-i18n-title="ui.ctl.start"><span class="icon i-skip-back" aria-hidden="true"></span></button>
+                        <button type="button" id="control-step-back" class="control-button active" data-i18n-title="ui.ctl.back"><span class="icon i-step-back" aria-hidden="true"></span></button>
+                        <div id="control-counter"></div>
+                        <button type="button" id="control-step-fwd" class="control-button active" data-i18n-title="ui.ctl.fwd"><span class="icon i-step-fwd" aria-hidden="true"></span></button>
+                        <button type="button" id="control-skip-fwd" class="control-button active" data-i18n-title="ui.ctl.end"><span class="icon i-skip-fwd" aria-hidden="true"></span></button>
+                    </div>
+                    <div id="control-msg" aria-live="polite"></div>
+                </div>
+            </div>
+            <div id="tab-timeline">
+                <table id="timeline" class="timeline"></table>
+            </div>
+        </div>
+
+        <div id="md-novo" class="modal screen">
+            <div class="dialog wide">
+                <button type="button" id="close-novo" class="close icon-btn btn" data-i18n-title="ui.close"><span class="icon i-close" aria-hidden="true"></span></button>
+                <h1>Nova Simulação</h1>
+                <div class="editor-layout">
+                    <div class="editor-code">
+                        <label class="field"><span data-i18n="ed.example">Exemplo:</span>
+                            <select id="novo-template"></select>
+                        </label>
+                        <div class="code-box">
+                            <pre id="novo-gutter" aria-hidden="true"></pre>
+                            <div class="code-area">
+                                <pre id="novo-highlight" aria-hidden="true"></pre>
+                                <textarea id="novo-code" spellcheck="false" wrap="off" aria-label="Assembly"></textarea>
+                            </div>
+                        </div>
+                        <ul id="novo-errors" class="errors"></ul>
+                    </div>
+                    <div class="editor-config" id="novo-config"></div>
+                </div>
+                <div class="dialog-actions">
+                    <button type="button" id="novo-reset" class="btn" data-i18n="ed.reset">Restaurar configuração padrão</button>
+                    <button type="button" id="novo-submit" class="btn primary">Executar</button>
+                </div>
+            </div>
+        </div>
+
+        <script type="module" src="./js/index.js"></script>
+    </body>
+</html>
