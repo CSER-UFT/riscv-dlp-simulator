@@ -4,7 +4,8 @@
  * Cada passo guarda uma mensagem e um instantâneo do estado. Para economizar memória, os instantâneos
  * compartilham as partes que não mudaram desde o instantâneo anterior (compartilhamento estrutural):
  * cada componente é comparado pelo seu conteúdo serializado e, se for igual, o mesmo objeto é reaproveitado.
- * A memória é tratada como imutável pelos motores (copiada a cada escrita) e por isso é sempre compartilhada.
+ * A memória é tratada como imutável pelos motores (uma PagedMemory, copiada com fork() a cada escrita, que
+ * compartilha as páginas não alteradas) e por isso é guardada por referência.
  */
 
 function replacer(key, v) {

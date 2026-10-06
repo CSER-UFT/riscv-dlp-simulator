@@ -65,7 +65,7 @@ export function simulateTpu(program, userConfig = {}) {
         pc: TEXT_BASE,
         halted: false,
         regs: { x: [...fun.x], f: [...fun.f] },
-        mem: new Map(fun.mem),
+        mem: memory.PagedMemory.from(fun.mem),
         ub: fun.tpu.ub.map((r) => [...r]),
         acc: fun.tpu.acc.map((r) => [...r]),
         issue: null,
@@ -369,7 +369,7 @@ export function simulateTpu(program, userConfig = {}) {
         }
         const stores = fx.mwrites.filter(([slot]) => op.t0 + wOff(op, slot) === c);
         if (stores.length > 0) {
-            S.mem = new Map(S.mem);
+            S.mem = memory.forkMem(S.mem);
             for (const [, addr, size, raw] of stores) {
                 memory.writeRaw(S.mem, addr, size, raw);
                 focus.push(`mem:${addr}`);

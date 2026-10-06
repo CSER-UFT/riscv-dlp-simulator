@@ -138,7 +138,7 @@ export function simulateGpu(program, userConfig = {}) {
     const S = {
         cycle: 0,
         tw: warps.map((w) => threads.slice(w.id * WS, (w.id + 1) * WS).map((th) => ({ x: [...th.x], f: [...th.f] }))),
-        mem: new Map(funMem),
+        mem: memory.PagedMemory.from(funMem),
         sm: {},
         warps: [],
         blocks: [],
@@ -165,7 +165,7 @@ export function simulateGpu(program, userConfig = {}) {
     const rec = new Recorder(userConfig.trace !== false, () => ({
         cycle: S.cycle, tw: S.tw, sm: S.sm, warps: S.warps, blocks: S.blocks, issued: S.issued, units: S.units, lastMem: S.lastMem,
         written: S.written, halted: S.halted,
-    }), () => S.mem, ['tw', 'sm']);
+    }), () => S.mem, ['tw', 'sm', 'warps', 'blocks', 'units', 'lastMem', 'issued']);
     const step = (msg, focus = []) => rec.step(msg, focus);
     const B = (x) => `**${x}**`;
     const wname = (w) => (gc.blocks > 1 ? `b${w.block}w${w.wib}` : `w${w.id}`);
@@ -456,12 +456,12 @@ export function simulateGpu(program, userConfig = {}) {
         if (op.stores.length) {
             if (op.stores[0].block !== null) {
                 const b = op.stores[0].block;
-                S.sm = { ...S.sm, [b]: new Map(S.sm[b] ?? []) };
+                S.sm = { ...S.sm, [b]: S.sm[b] ? memory.forkMem(S.sm[b]) : new memory.PagedMemory() };
                 for (const st of op.stores) memory.writeRaw(S.sm[b], st.addr, st.size, st.raw);
                 focus.push('smem');
                 parts.push(t('gpu.writeShared', { n: op.stores.length }));
             } else {
-                S.mem = new Map(S.mem);
+                S.mem = memory.forkMem(S.mem);
                 for (const st of op.stores) {
                     memory.writeRaw(S.mem, st.addr, st.size, st.raw);
                     focus.push(`mem:${st.addr}`);
@@ -478,15 +478,24 @@ export function simulateGpu(program, userConfig = {}) {
         return 'Lat';
     }
 
+    // Visões dos warps do ciclo anterior: uma visão igual é reaproveitada, para que os instantâneos (que as
+    // guardam por referência) compartilhem os warps que não mudaram.
+    const warpViews = new Map();
+
     function view(c, pre) {
         S.warps = resident().map((w) => {
             const st = S.issued?.warp === w.id ? { state: 'issued' } : pre[w.id];
             const e = top(w);
-            return {
+            const v = {
                 id: w.id, name: wname(w), block: w.block, done: w.done, state: st.state, reg: st.reg ?? null, unit: st.unit ?? null,
                 until: st.until ?? null, pc: e ? e.pc : null, mask: e ? live(w, e.mask) : new Array(WS).fill(false),
                 stack: w.stack.map((x) => ({ pc: x.pc, rpc: x.rpc, mask: maskText(live(w, x.mask)) })),
             };
+            const key = JSON.stringify(v);
+            const old = warpViews.get(w.id);
+            if (old && old.key === key) return old.v;
+            warpViews.set(w.id, { key, v });
+            return v;
         });
         S.blocks = blocks.map((b) => b.state);
         S.units = GPU_UNITS.map((name, u) => ({

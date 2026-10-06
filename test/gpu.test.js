@@ -218,3 +218,36 @@ test('memória compartilhada: acesso fora da seção declarada', () => {
     assert.equal(sim.warnings.length, 1);
     assert.match(asm('.shared\ns: .space 8\n.text\nnop').shared.size.toString(), /8/);
 });
+
+test('memória paginada: cópias isoladas e instantâneos imutáveis', async () => {
+    const { PagedMemory, readRaw, writeRaw } = await import('../js/riscv/memory.js');
+    const a = new PagedMemory(new Map([[0n, 1], [200n, 2]]));
+    const b = a.fork();
+    writeRaw(b, 0n, 4, 0x0a0b0c0dn);
+    a.set(200n, 9);
+    assert.equal(readRaw(a, 0n, 4), 1n);
+    assert.equal(readRaw(b, 0n, 4), 0x0a0b0c0dn);
+    assert.equal(b.get(200n), 2);
+    assert.equal(a.size, 2);
+    assert.equal(b.size, 5);
+    assert.deepEqual([...b.keys()].sort((x, y) => Number(x - y)), [0n, 1n, 2n, 3n, 200n]);
+
+    // Os instantâneos de uma simulação guardam a memória de cada ciclo, sem serem alterados depois.
+    const src = `.data
+v: .word 0, 0, 0, 0, 0, 0, 0, 0
+.text
+    gpu.tid t0
+    la      t1, v
+    slli    t2, t0, 2
+    add     t1, t1, t2
+    addi    t3, t0, 1
+    sw      t3, 0(t1)
+    ecall`;
+    const sim = simulate(asm(src), { mode: 'gpu', gpu: { warps: 1, warpSize: 8, lanes: 8 } });
+    const base = sim.program.dataLabels[0].addr;
+    const first = sim.states[0].mem;
+    assert.equal(readRaw(first, base + 28n, 4), 0n);
+    assert.equal(readRaw(sim.final.mem, base + 28n, 4), 8n);
+    const changes = sim.states.filter((s, k) => k > 0 && s.mem !== sim.states[k - 1].mem).length;
+    assert.equal(changes, 1, 'a memória só muda no ciclo da escrita');
+});

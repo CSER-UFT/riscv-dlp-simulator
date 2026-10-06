@@ -1,9 +1,82 @@
 /**
- * Memória endereçável por byte, esparsa e little-endian.
- * A memória é um Map<bigint, number> (endereço -> byte), para que possa ser copiada com structuredClone
- * a cada passo da simulação. Posições nunca escritas valem zero.
+ * Memória endereçável por byte, esparsa e little-endian: um Map<bigint, number> (endereço -> byte) ou uma
+ * PagedMemory com a mesma interface. Posições nunca escritas valem zero.
  */
 import { signed, unsigned, f32ToBits, bitsToF32, f64ToBits, bitsToF64 } from './bits.js';
+
+const PAGE_BITS = 7n;
+let nextOwner = 1;
+
+/**
+ * Memória paginada com cópia na escrita, usada pelos modelos temporais. fork() devolve uma cópia que
+ * compartilha as páginas com a original; uma página só é duplicada quando uma das cópias escreve nela.
+ * Assim cada instantâneo da simulação guarda só as páginas que mudaram, e copiar a memória custa o número
+ * de páginas, não o de bytes. A interface de leitura é a de um Map (get, has, keys, entries, size e
+ * iteração), em ordem de página e de escrita.
+ */
+export class PagedMemory {
+    constructor(source = null) {
+        this.owner = nextOwner++;
+        this.pages = new Map();
+        this.size = 0;
+        if (source) for (const [a, v] of source) this.set(a, v);
+    }
+
+    static from(mem) {
+        return mem instanceof PagedMemory ? mem.fork() : new PagedMemory(mem);
+    }
+
+    fork() {
+        const m = new PagedMemory();
+        m.pages = new Map(this.pages);
+        m.size = this.size;
+        // As páginas atuais passam a ser compartilhadas: a próxima escrita em qualquer das duas cópias duplica.
+        this.owner = nextOwner++;
+        return m;
+    }
+
+    get(addr) {
+        return this.pages.get(addr >> PAGE_BITS)?.bytes.get(addr);
+    }
+
+    has(addr) {
+        return this.pages.get(addr >> PAGE_BITS)?.bytes.has(addr) ?? false;
+    }
+
+    set(addr, value) {
+        const k = addr >> PAGE_BITS;
+        let p = this.pages.get(k);
+        if (!p) {
+            p = { owner: this.owner, bytes: new Map() };
+            this.pages.set(k, p);
+        } else if (p.owner !== this.owner) {
+            p = { owner: this.owner, bytes: new Map(p.bytes) };
+            this.pages.set(k, p);
+        }
+        if (!p.bytes.has(addr)) this.size++;
+        p.bytes.set(addr, value);
+        return this;
+    }
+
+    *keys() {
+        for (const p of this.pages.values()) yield* p.bytes.keys();
+    }
+
+    *entries() {
+        for (const p of this.pages.values()) yield* p.bytes.entries();
+    }
+
+    [Symbol.iterator]() {
+        return this.entries();
+    }
+
+    forEach(fn) {
+        for (const [k, v] of this.entries()) fn(v, k, this);
+    }
+}
+
+/** Cópia de uma memória para escrita: barata para PagedMemory, completa para um Map. */
+export const forkMem = (mem) => (mem instanceof PagedMemory ? mem.fork() : new Map(mem));
 
 /** Lê `size` bytes a partir de `addr` como inteiro sem sinal. */
 export function readRaw(mem, addr, size) {

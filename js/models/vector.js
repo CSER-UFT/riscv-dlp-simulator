@@ -71,7 +71,7 @@ export function simulateVector(program, userConfig = {}) {
         regs: { x: [...fun.x], f: [...fun.f] },
         v: fun.v.map((r) => [...r]),
         view: new Array(32).fill(null),
-        mem: new Map(fun.mem),
+        mem: memory.PagedMemory.from(fun.mem),
         issue: null,
         units: [],
         scalar: [],
@@ -386,7 +386,7 @@ export function simulateVector(program, userConfig = {}) {
         // Memória
         const stores = fx.mwrites.filter(([slot]) => op.t0 + (op.vector ? wOff(op, slot) : op.S - 1) === c);
         if (stores.length > 0) {
-            S.mem = new Map(S.mem);
+            S.mem = memory.forkMem(S.mem);
             for (const [, addr, size, raw] of stores) {
                 memory.writeRaw(S.mem, addr, size, raw);
                 focus.push(`mem:${addr}`);
