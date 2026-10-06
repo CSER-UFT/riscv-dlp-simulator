@@ -29,7 +29,7 @@ Simplificações: apenas LMUL = 1, com a largura dos acessos à memória igual a
 ## TPU
 
 * Instruções `tpu.rdhost`, `tpu.rdw`, `tpu.matmul`, `tpu.matmul.acc`, `tpu.act` e `tpu.wrhost`, emitidas pelo núcleo escalar.
-* Dimensão do array, linhas do Unified Buffer e dos acumuladores, tamanho da fila de pesos e latências configuráveis.
+* Dimensão do array, linhas do Unified Buffer e dos acumuladores, tamanho da fila de pesos, latências e tipo de dado (int32 ou int8 com requantização por deslocamento e saturação, como na TPU v1) configuráveis.
 * Array sistólico com entradas defasadas e somas parciais descendo pelas colunas (latência 2N menos 1), buffer duplo de pesos e dependências verificadas linha a linha, o que permite sobrepor multiplicação, ativação e a camada seguinte.
 * Diagrama com a frente diagonal de cálculo atravessando o array, o peso, a entrada e a soma parcial de cada elemento, a fila de pesos, o Unified Buffer e os acumuladores; estatísticas de MAC por ciclo e uso do array.
 
@@ -41,7 +41,7 @@ Simplificações: apenas LMUL = 1, com a largura dos acessos à memória igual a
 
 Exemplos: SAXPY (ocultação de latência com mais warps), divergência, coalescência e redução em árvore com barreira.
 
-Exemplos da TPU: C = ReLU(A × B), lote de 12 linhas, lote pequeno limitado pelos pesos, K maior que o array (acumulação) e rede de duas camadas.
+Exemplos da TPU: C = ReLU(A × B), lote de 12 linhas, lote pequeno limitado pelos pesos, K maior que o array (acumulação), rede de duas camadas, camada int8 quantizada e convolução 2D por im2col.
 
 ## Recursos para aula
 

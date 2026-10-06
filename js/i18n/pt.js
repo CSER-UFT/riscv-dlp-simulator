@@ -244,6 +244,13 @@ export default {
     'ui.vec.elemN': 'elemento {e} do grupo',
     'ui.vec.fromElem': 'elementos a partir de {e}',
 
+    'ed.tpuDtype': 'Tipo de dado',
+    'ed.tpuInt32': 'int32 (valores legíveis)',
+    'ed.tpuInt8': 'int8 com requantização (TPU v1)',
+    'ed.tpuShift': 'Deslocamento da requantização (bits, int8)',
+    'ui.int8Bytes': 'Bytes (int8)',
+    'ui.tpu.int8Head': 'int8 · acumuladores de 32 bits · requantização >> {s} com saturação',
+
     // Interface --------------------------------------------------------------------------------------------
     'ui.docTitle': 'Simulador de Paralelismo de Dados RISC-V',
     'ui.appTitle': 'Simulador de Paralelismo de Dados <b>RISC-V</b>',

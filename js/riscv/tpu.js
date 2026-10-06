@@ -1,7 +1,9 @@
 /**
  * Instruções da TPU didática, inspirada na TPU v1 do Google (Jouppi et al., ISCA 2017), comandada por um
- * núcleo RISC-V. Os dados são inteiros de 32 bits (a TPU v1 usa 8 bits nas entradas; aqui 32 bits deixam os
- * valores legíveis na memória).
+ * núcleo RISC-V. O tipo de dado é configurável: int32 (padrão, valores legíveis na memória) ou int8 como na
+ * TPU v1. Em int8 as entradas, os pesos e as saídas do buffer ocupam 1 byte; os acumuladores continuam com
+ * 32 bits, e a ativação requantiza o resultado: desloca à direita com arredondamento (shift bits) e satura
+ * no intervalo de 8 bits.
  *
  *   tpu.rdhost  ub, (rs1), linhas     lê linhas de N elementos da memória do host para o Unified Buffer
  *   tpu.wrhost  (rs1), ub, linhas     escreve linhas do Unified Buffer na memória do host
@@ -26,7 +28,22 @@ export const TPU_CLASSES = ['tdma', 'twload', 'tmxu', 'tact'];
 export const ACT_FUNCS = ['none', 'relu'];
 
 /** Configuração padrão da TPU (dimensão do array, linhas do buffer e dos acumuladores, fila de pesos). */
-export const DEFAULT_TPU = { n: 4, ubRows: 16, accRows: 16, fifoDepth: 2, memLatency: 6, actLatency: 2 };
+export const DEFAULT_TPU = { n: 4, ubRows: 16, accRows: 16, fifoDepth: 2, memLatency: 6, actLatency: 2, dtype: 'int32', shift: 0 };
+
+export const TPU_DTYPES = ['int32', 'int8'];
+
+/** Bytes de cada elemento na memória do host conforme o tipo de dado. */
+export const elemBytes = (tc) => (tc.dtype === 'int8' ? 1 : 4);
+
+/**
+ * Requantização da ativação para int8: deslocamento aritmético à direita com arredondamento para o mais
+ * próximo (empates para cima) e saturação em [-128, 127].
+ */
+export function requantize(v, shift) {
+    let r = v;
+    if (shift > 0) r = (v + (1n << BigInt(shift - 1))) >> BigInt(shift);
+    return r > 127n ? 127n : r < -128n ? -128n : r;
+}
 
 export class TpuError extends Error { }
 
@@ -65,6 +82,8 @@ export function execTpu(st, inst, xlen, tc) {
     const d = inst.def;
     const tp = st.tpu;
     const n = tc.n;
+    const es = elemBytes(tc);
+    const bits = 8 * es;
     const fx = { slots: 0, reads: [], writes: [], mreads: [], mwrites: [], xreads: [], xwrite: null, macs: 0, tile: null };
     if (inst.rs1) fx.xreads.push(inst.rs1);
     const base = inst.rs1 ? unsigned(inst.rs1 === 'x0' ? 0n : st.x[index(inst.rs1)], xlen) : 0n;
@@ -79,10 +98,10 @@ export function execTpu(st, inst, xlen, tc) {
             for (let r = 0; r < rows; r++) {
                 const row = [];
                 for (let j = 0; j < n; j++) {
-                    const addr = unsigned(base + BigInt(4 * (r * n + j)), xlen);
-                    row.push(signed(readRaw(st.mem, addr, 4), 32));
+                    const addr = unsigned(base + BigInt(es * (r * n + j)), xlen);
+                    row.push(signed(readRaw(st.mem, addr, es), bits));
                 }
-                fx.mreads.push([r, unsigned(base + BigInt(4 * r * n), xlen), 4 * n]);
+                fx.mreads.push([r, unsigned(base + BigInt(es * r * n), xlen), es * n]);
                 tp.ub[inst.dst + r] = row;
                 fx.writes.push([r, `ub${inst.dst + r}`, [...row]]);
             }
@@ -94,11 +113,11 @@ export function execTpu(st, inst, xlen, tc) {
             for (let r = 0; r < rows; r++) {
                 fx.reads.push([r, `ub${inst.src + r}`]);
                 const row = tp.ub[inst.src + r];
-                const addr = unsigned(base + BigInt(4 * r * n), xlen);
+                const addr = unsigned(base + BigInt(es * r * n), xlen);
                 let raw = 0n;
-                for (let j = n - 1; j >= 0; j--) raw = (raw << 32n) | unsigned(row[j], 32);
-                writeRaw(st.mem, addr, 4 * n, raw);
-                fx.mwrites.push([r, addr, 4 * n, raw]);
+                for (let j = n - 1; j >= 0; j--) raw = (raw << BigInt(bits)) | unsigned(row[j], bits);
+                writeRaw(st.mem, addr, es * n, raw);
+                fx.mwrites.push([r, addr, es * n, raw]);
             }
             break;
         }
@@ -109,8 +128,8 @@ export function execTpu(st, inst, xlen, tc) {
             fx.slots = n;
             for (let i = 0; i < n; i++) {
                 const row = [];
-                for (let j = 0; j < n; j++) row.push(signed(readRaw(st.mem, unsigned(base + BigInt(4 * (i * n + j)), xlen), 4), 32));
-                fx.mreads.push([i, unsigned(base + BigInt(4 * i * n), xlen), 4 * n]);
+                for (let j = 0; j < n; j++) row.push(signed(readRaw(st.mem, unsigned(base + BigInt(es * (i * n + j)), xlen), es), bits));
+                fx.mreads.push([i, unsigned(base + BigInt(es * i * n), xlen), es * n]);
                 fx.writes.push([i, `wf${slot}r${i}`, [...row]]);
                 tile.push(row);
             }
@@ -162,7 +181,10 @@ export function execTpu(st, inst, xlen, tc) {
             const results = [];
             for (let r = 0; r < rows; r++) {
                 fx.reads.push([r, `acc${inst.src + r}`]);
-                results.push(tp.acc[inst.src + r].map((v) => (inst.func === 'relu' && v < 0n ? 0n : v)));
+                results.push(tp.acc[inst.src + r].map((v) => {
+                    const a = inst.func === 'relu' && v < 0n ? 0n : v;
+                    return es === 1 ? requantize(a, tc.shift) : a;
+                }));
             }
             for (let r = 0; r < rows; r++) {
                 tp.ub[inst.dst + r] = results[r];

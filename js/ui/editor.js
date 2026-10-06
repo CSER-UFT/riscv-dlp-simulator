@@ -218,6 +218,8 @@ export class Editor {
                 ${num('tpuFifo', c.tpu.fifoDepth, 1, 8, t('ed.tpuFifo'), 'tpu-only')}
                 ${num('tpuMem', c.tpu.memLatency, 1, 100, t('ed.tpuMem'), 'tpu-only')}
                 ${num('tpuAct', c.tpu.actLatency, 1, 20, t('ed.tpuAct'), 'tpu-only')}
+                <label class="field tpu-only">${t('ed.tpuDtype')}<select name="tpuDtype">${opt([['int32', t('ed.tpuInt32')], ['int8', t('ed.tpuInt8')]], c.tpu.dtype)}</select></label>
+                ${num('tpuShift', c.tpu.shift, 0, 24, t('ed.tpuShift'), 'tpu-only')}
                 ${num('branchPenalty', c.branchPenalty, 0, 20, t('ed.branchPenalty'), 'not-gpu')}
             </fieldset>
             <fieldset class="gpu-only"><legend>${t('ed.gpuGrid')}</legend>
@@ -309,7 +311,7 @@ export class Editor {
             },
             tpu: {
                 n: n('tpuN'), ubRows: n('tpuUb'), accRows: n('tpuAcc'), fifoDepth: n('tpuFifo'),
-                memLatency: n('tpuMem'), actLatency: n('tpuAct'),
+                memLatency: n('tpuMem'), actLatency: n('tpuAct'), dtype: get('tpuDtype').value, shift: n('tpuShift'),
             },
             latency: {},
         };

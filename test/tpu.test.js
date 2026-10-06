@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { runReference } from '../js/riscv/machine.js';
 import { assemble } from '../js/riscv/parser.js';
 import { simulate } from '../js/simulator.js';
-import { DEFAULT_TPU } from '../js/riscv/tpu.js';
+import { DEFAULT_TPU, requantize } from '../js/riscv/tpu.js';
+import { EXAMPLES } from '../js/examples.js';
 import { asm, TPU_CONFIGS, assertMatchesReference } from './helpers.js';
 
 const DATA = `.data
@@ -120,4 +121,50 @@ test('programas aleatórios: TPU = referência e regras de tempo em todas as con
         }
     }
     assert.ok(DEFAULT_TPU.n >= 2);
+});
+
+test('int8: requantização com arredondamento e saturação', () => {
+    assert.equal(requantize(260n, 4), 16n);
+    assert.equal(requantize(24n, 4), 2n);    // 1,5 arredonda para cima
+    assert.equal(requantize(-24n, 4), -1n);  // -1,5 arredonda para cima (empate)
+    assert.equal(requantize(20000n, 4), 127n);
+    assert.equal(requantize(-5000n, 0), -128n);
+    assert.equal(requantize(-7n, 0), -7n);
+});
+
+/** Lê `count` elementos de `es` bytes com sinal a partir do rótulo `name`. */
+function readLabel(sim, name, count, es) {
+    const base = sim.program.dataLabels.find((l) => l.name === name).addr;
+    const out = [];
+    for (let k = 0; k < count; k++) {
+        let v = 0n;
+        for (let b = 0; b < es; b++) v |= BigInt(sim.final.mem.get(base + BigInt(k * es + b)) ?? 0) << BigInt(8 * b);
+        out.push(Number(BigInt.asIntN(8 * es, v)));
+    }
+    return out;
+}
+
+test('int8: elementos de 1 byte na memória e saída requantizada (calculada à mão)', () => {
+    const ex = EXAMPLES.find((e) => e.id === 'tpu-int8');
+    const sim = simulate(assemble(ex.code), ex.config);
+    assert.deepEqual(sim.errors, []);
+    assert.deepEqual(readLabel(sim, 'Y', 16, 1), [16, 23, 25, 127, 7, 8, 11, 53, 69, 94, 81, 127, 2, 2, 3, 31]);
+});
+
+test('convolução por im2col: saída igual à convolução direta', () => {
+    const ex = EXAMPLES.find((e) => e.id === 'tpu-conv');
+    const sim = simulate(assemble(ex.code), ex.config);
+    assert.deepEqual(sim.errors, []);
+    const img = readLabel(sim, 'img', 25, 4);
+    const W = readLabel(sim, 'W', 16, 4);
+    const expected = [];
+    for (let oy = 0; oy < 4; oy++)
+        for (let ox = 0; ox < 4; ox++)
+            for (let c = 0; c < 4; c++) {
+                let s = 0;
+                for (let ky = 0; ky < 2; ky++)
+                    for (let kx = 0; kx < 2; kx++) s += img[(oy + ky) * 5 + ox + kx] * W[(ky * 2 + kx) * 4 + c];
+                expected.push(s);
+            }
+    assert.deepEqual(readLabel(sim, 'Y', 64, 4), expected);
 });

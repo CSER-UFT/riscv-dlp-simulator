@@ -199,7 +199,7 @@ export default {
             id: 'tpu',
             title: 'The TPU',
             html: `
-<p>Google's TPU (<em>Tensor Processing Unit</em>) is an accelerator for neural networks. Its core is a <strong>matrix multiply unit</strong> organized as a <strong>systolic array</strong>: a grid of N × N processing elements, each with a multiplier and an adder, that pass data only to their neighbors. This simulator's model follows TPU v1 (Jouppi et al., ISCA 2017), driven by a scalar RISC-V core, with a configurable N (4 by default) and 32 bit integers.</p>
+<p>Google's TPU (<em>Tensor Processing Unit</em>) is an accelerator for neural networks. Its core is a <strong>matrix multiply unit</strong> organized as a <strong>systolic array</strong>: a grid of N × N processing elements, each with a multiplier and an adder, that pass data only to their neighbors. This simulator's model follows TPU v1 (Jouppi et al., ISCA 2017), driven by a scalar RISC-V core, with a configurable N (4 by default) and 32 bit or 8 bit integers.</p>
 <h3>Components</h3>
 <dl>
     <dt>Unified Buffer (UB)</dt><dd>On chip memory with rows of N elements: the inputs of the multiplication and the outputs of the activation.</dd>
@@ -224,6 +224,10 @@ export default {
     <tr><td><code>tpu.wrhost (rs1), ub, n</code></td><td>DMA</td><td>n rows of UB[ub] to memory</td></tr>
 </table>
 <p>In memory, a matrix is stored by rows, with N 32 bit integers (<code>.word</code>) per row; a weight tile is N consecutive rows. Each <code>tpu.matmul</code> consumes one tile from the queue, and a <code>tpu.rdw</code> only fits if the queue is not full. For K larger than N, split A into column blocks and B into row blocks and add the products with <code>tpu.matmul.acc</code> (example <em>K larger than the array</em>).</p>
+<h3>int8 and quantization</h3>
+<p>With the <em>int8</em> data type, as in TPU v1, inputs, weights and buffer outputs take 1 byte (<code>.byte</code>), and a row of N elements takes N bytes in memory. The accumulators keep 32 bits, because the sum of N products of 8 bits exceeds 8 bits. To bring the output back to 8 bits, the activation <strong>requantizes</strong>: it applies the function, shifts the result right by the configured number of bits, rounding to nearest, and saturates to [−128, 127]. The shift is a division by a power of 2, the quantization scale. See the example <em>int8 with requantization</em>, where one column saturates.</p>
+<h3>Convolution</h3>
+<p>A convolution becomes a matrix multiplication through the <strong>im2col</strong> transformation: each output position becomes a row with the pixels of its window, and each filter becomes a column of the weight tile. In the example <em>2D convolution with im2col</em>, the scalar core builds the matrix and a single <code>tpu.matmul</code> computes the 64 outputs; the time of the scalar loop shows why that work belongs to the hardware or the compiler.</p>
 <h3>Timing</h3>
 <p>Instructions are issued in order by the scalar core, one per cycle, as in the vector processor, and each unit processes one row per cycle. DMA and WDMA have the memory latency; the activation, its own latency. Dependences are checked row by row in the Unified Buffer, the accumulators and the weight queue: the activation can read accumulator row 0 in the cycle after it is written, while the array still produces the following rows, and a second layer can start as soon as the activation writes the first rows into the buffer (example <em>two layer network</em>).</p>
 <h3>The diagram</h3>
@@ -362,7 +366,7 @@ export default {
     <li>There is no branch prediction: taken branches cost a fixed number of bubbles.</li>
     <li>There is no limit on vector register file ports.</li>
     <li>GPU: a single SM, without shared memory or caches; memory serves one transaction per cycle with a fixed latency; divergent indirect jumps are not accepted; the final state is checked against running the threads one after the other, which holds for race free programs.</li>
-    <li>TPU: 32 bit integers along the whole path (TPU v1 uses 8 bits for inputs and weights), a single activation per instruction (ReLU or none) and weights read from the same memory as the data.</li>
+    <li>TPU: 32 or 8 bit integers (no floating point nor per channel scales), a single activation per instruction (ReLU or none) and weights read from the same memory as the data.</li>
     <li>Values are computed when the instruction reaches issue, in program order; the displayed state changes in the cycles in which each element is written. The final state is checked against a functional reference simulator.</li>
 </ul>`,
         },

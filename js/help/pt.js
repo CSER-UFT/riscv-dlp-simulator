@@ -200,7 +200,7 @@ export default {
             id: 'tpu',
             title: 'A TPU',
             html: `
-<p>A TPU (<em>Tensor Processing Unit</em>) do Google é um acelerador para redes neurais. O coração dela é uma <strong>unidade de multiplicação de matrizes</strong> organizada como um <strong>array sistólico</strong>: uma grade de N × N elementos de processamento, cada um com um multiplicador e um somador, que passam dados apenas para os vizinhos. O modelo deste simulador segue a TPU v1 (Jouppi et al., ISCA 2017), comandada por um núcleo RISC-V escalar, com N configurável (4 por padrão) e inteiros de 32 bits.</p>
+<p>A TPU (<em>Tensor Processing Unit</em>) do Google é um acelerador para redes neurais. O coração dela é uma <strong>unidade de multiplicação de matrizes</strong> organizada como um <strong>array sistólico</strong>: uma grade de N × N elementos de processamento, cada um com um multiplicador e um somador, que passam dados apenas para os vizinhos. O modelo deste simulador segue a TPU v1 (Jouppi et al., ISCA 2017), comandada por um núcleo RISC-V escalar, com N configurável (4 por padrão) e inteiros de 32 bits ou de 8 bits.</p>
 <h3>Componentes</h3>
 <dl>
     <dt>Unified Buffer (UB)</dt><dd>Memória interna com linhas de N elementos: as entradas da multiplicação e as saídas da ativação.</dd>
@@ -225,6 +225,10 @@ export default {
     <tr><td><code>tpu.wrhost (rs1), ub, n</code></td><td>DMA</td><td>n linhas de UB[ub] para a memória</td></tr>
 </table>
 <p>Na memória, uma matriz fica guardada por linhas, com N inteiros de 32 bits (<code>.word</code>) por linha; um bloco de pesos são N linhas seguidas. Cada <code>tpu.matmul</code> consome um bloco da fila, e um <code>tpu.rdw</code> só cabe se a fila não estiver cheia. Para K maior que N, divida A em blocos de colunas e B em blocos de linhas e some os produtos com <code>tpu.matmul.acc</code> (exemplo <em>K maior que o array</em>).</p>
+<h3>int8 e quantização</h3>
+<p>Com o tipo de dado <em>int8</em>, como na TPU v1, entradas, pesos e saídas do buffer ocupam 1 byte (<code>.byte</code>), e uma linha de N elementos ocupa N bytes na memória. Os acumuladores continuam com 32 bits, porque a soma de N produtos de 8 bits passa de 8 bits. Para a saída voltar a 8 bits, a ativação <strong>requantiza</strong>: aplica a função, desloca o resultado à direita pelo número de bits configurado, com arredondamento para o mais próximo, e satura em [−128, 127]. O deslocamento equivale a dividir por uma potência de 2, a escala da quantização. Veja o exemplo <em>int8 com requantização</em>, em que uma coluna satura.</p>
+<h3>Convolução</h3>
+<p>Uma convolução vira multiplicação de matrizes pela transformação <strong>im2col</strong>: cada posição de saída vira uma linha com os pixels da sua janela, e cada filtro vira uma coluna do bloco de pesos. No exemplo <em>convolução 2D com im2col</em>, o núcleo escalar monta a matriz e uma única <code>tpu.matmul</code> calcula as 64 saídas; o tempo do laço escalar mostra por que esse trabalho fica com o hardware ou com o compilador.</p>
 <h3>Temporização</h3>
 <p>As instruções são emitidas em ordem pelo núcleo escalar, uma por ciclo, como no processador vetorial, e cada unidade processa uma linha por ciclo. DMA e WDMA têm a latência da memória; a ativação, a sua própria latência. As dependências são verificadas linha a linha no Unified Buffer, nos acumuladores e na fila de pesos: a ativação pode ler a linha 0 dos acumuladores no ciclo seguinte à sua escrita, enquanto o array ainda produz as linhas seguintes, e uma segunda camada pode começar assim que a ativação escreve as primeiras linhas no buffer (exemplo <em>rede de duas camadas</em>).</p>
 <h3>O diagrama</h3>
@@ -363,7 +367,7 @@ export default {
     <li>Não há previsão de desvios: desvios tomados custam um número fixo de bolhas.</li>
     <li>Não há limite de portas no banco de registradores vetoriais.</li>
     <li>GPU: um único SM, sem memória compartilhada (<em>shared memory</em>) nem caches; a memória atende uma transação por ciclo com latência fixa; saltos indiretos divergentes não são aceitos; o estado final é verificado contra a execução das threads em sequência, o que vale para programas sem condição de corrida.</li>
-    <li>TPU: inteiros de 32 bits em todo o caminho (a TPU v1 usa 8 bits nas entradas e nos pesos), uma única ativação por instrução (ReLU ou nenhuma) e pesos lidos da mesma memória que os dados.</li>
+    <li>TPU: inteiros de 32 ou de 8 bits (sem ponto flutuante nem escalas por canal), uma única ativação por instrução (ReLU ou nenhuma) e pesos lidos da mesma memória que os dados.</li>
     <li>Os valores são calculados quando a instrução chega à emissão, em ordem de programa; o estado exibido muda nos ciclos em que cada elemento é escrito. O estado final é verificado contra um simulador funcional de referência.</li>
 </ul>`,
         },

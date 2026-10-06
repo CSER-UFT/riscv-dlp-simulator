@@ -97,7 +97,7 @@ export function renderTpu(el, ctx, snap) {
         <div class="vec-wrap">
             <div class="pipe-head">
                 <span class="pcbox ${focus.has('pc') ? 'focus' : ''}">PC = ${fmt.address(snap.pc)}</span>
-                <span class="sub">${esc(t('ui.tpu.head', { n: cfg.n, ub: cfg.ubRows, acc: cfg.accRows, fifo: cfg.fifoDepth }))}</span>
+                <span class="sub">${esc(t('ui.tpu.head', { n: cfg.n, ub: cfg.ubRows, acc: cfg.accRows, fifo: cfg.fifoDepth }))}${cfg.dtype === 'int8' ? ` · ${esc(t('ui.tpu.int8Head', { s: cfg.shift }))}` : ''}</span>
             </div>
             <div class="vec-row">
                 <div class="vec-side">${issuePanel(ctx, snap, focus)}${scalarPanel(ctx, snap)}${others.map((u) => unitPanel(ctx, snap, u, focus)).join('')}</div>
@@ -108,7 +108,7 @@ export function renderTpu(el, ctx, snap) {
                 </div>
             </div>
             <div class="pipe-bottom">
-                ${registersPanel(ctx, snap, focus)}${memoryPanel(ctx, snap, focus)}${statsPanel(ctx)}
+                ${registersPanel(ctx, snap, focus)}${memoryPanel(ctx, snap, focus, { bytes: cfg.dtype === 'int8' })}${statsPanel(ctx)}
             </div>
         </div>`;
 }

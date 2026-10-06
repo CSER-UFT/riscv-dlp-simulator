@@ -56,6 +56,7 @@ export const TPU_CONFIGS = {
     'TPU 8 x 8, fila 4': { mode: 'tpu', tpu: { n: 8, fifoDepth: 4 } },
     'TPU latências altas': { mode: 'tpu', branchPenalty: 2, tpu: { memLatency: 20, actLatency: 5 }, latency: { alu: 2, load: 4, store: 3 } },
     'TPU latência 1': { mode: 'tpu', branchPenalty: 0, tpu: { memLatency: 1, actLatency: 1 } },
+    'TPU int8': { mode: 'tpu', tpu: { dtype: 'int8', shift: 2 } },
 };
 
 /** Configurações da GPU. */

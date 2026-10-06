@@ -244,6 +244,13 @@ export default {
     'ui.vec.elemN': 'element {e} of the group',
     'ui.vec.fromElem': 'elements from {e}',
 
+    'ed.tpuDtype': 'Data type',
+    'ed.tpuInt32': 'int32 (readable values)',
+    'ed.tpuInt8': 'int8 with requantization (TPU v1)',
+    'ed.tpuShift': 'Requantization shift (bits, int8)',
+    'ui.int8Bytes': 'Bytes (int8)',
+    'ui.tpu.int8Head': 'int8 · 32 bit accumulators · requantization >> {s} with saturation',
+
     // Interface --------------------------------------------------------------------------------------------
     'ui.docTitle': 'RISC-V Data Level Parallelism Simulator',
     'ui.appTitle': '<b>RISC-V</b> Data Level Parallelism Simulator',

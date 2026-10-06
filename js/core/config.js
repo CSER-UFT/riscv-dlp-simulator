@@ -3,7 +3,7 @@
  * escalares, a frequência e o limite de ciclos são comuns.
  */
 import { VECTOR_CLASSES } from '../riscv/vector.js';
-import { DEFAULT_TPU } from '../riscv/tpu.js';
+import { DEFAULT_TPU, TPU_DTYPES } from '../riscv/tpu.js';
 import { DEFAULT_GPU, SCHEDULERS, MAX_THREADS } from '../riscv/gpu.js';
 import { t } from '../i18n/index.js';
 
@@ -89,6 +89,8 @@ function normalizeTpu(pt) {
         fifoDepth: intIn(pt.fifoDepth, 1, 8, d.fifoDepth),
         memLatency: intIn(pt.memLatency, 1, 100, d.memLatency),
         actLatency: intIn(pt.actLatency, 1, 20, d.actLatency),
+        dtype: TPU_DTYPES.includes(pt.dtype) ? pt.dtype : d.dtype,
+        shift: intIn(pt.shift, 0, 24, d.shift),
     };
 }
 

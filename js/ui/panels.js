@@ -81,7 +81,7 @@ export function registersPanel(ctx, snap, focus) {
         <table class="regs"><tr><th></th><th>${t('ui.value')}</th></tr>${rows}</table></section>`;
 }
 
-export function memoryPanel(ctx, snap, focus) {
+export function memoryPanel(ctx, snap, focus, { bytes = false } = {}) {
     const focusAddrs = [...focus].filter((f) => f.startsWith('mem:')).map((f) => BigInt(f.slice(4)));
     const ws = words(snap.mem, 4);
     const limit = 64;
@@ -93,13 +93,13 @@ export function memoryPanel(ctx, snap, focus) {
         const asFloat = view.getFloat32(0);
         return `<tr class="${hit ? 'focus' : ''}"><td class="num">${fmt.address(addr)}</td><td>${esc(label)}</td>
             <td class="num" title="0x${raw.toString(16).padStart(8, '0')}">${BigInt.asIntN(32, raw)}</td>
-            <td class="num dim">${esc(fmt.value(asFloat))}</td></tr>`;
+            ${bytes ? `<td class="num">${[0, 1, 2, 3].map((k) => BigInt.asIntN(8, raw >> BigInt(8 * k))).join(' ')}</td>` : `<td class="num dim">${esc(fmt.value(asFloat))}</td>`}</tr>`;
     }).join('');
     const more = ws.length > limit ? `<p class="note">${t('ui.moreWords', { n: ws.length - limit })}</p>` : '';
     const empty = ws.length === 0 ? `<p class="note">${t('ui.memoryEmpty')}</p>` : '';
     const isFocus = focusAddrs.length > 0;
     return `<section class="panel ${isFocus ? 'focus' : ''}" data-part="mem"><h3>${t('ui.memory')} <span class="sub">${t('ui.words32')}</span></h3>
-        ${ws.length ? `<table class="mem"><tr><th>${t('ui.address')}</th><th>${t('ui.label')}</th><th>${t('ui.integer')}</th><th>Float</th></tr>${rows}</table>` : ''}${more}${empty}</section>`;
+        ${ws.length ? `<table class="mem"><tr><th>${t('ui.address')}</th><th>${t('ui.label')}</th><th>${t('ui.integer')}</th><th>${bytes ? t('ui.int8Bytes') : 'Float'}</th></tr>${rows}</table>` : ''}${more}${empty}</section>`;
 }
 
 /** Linhas de estatística (pares [rótulo, valor]) de uma simulação. */

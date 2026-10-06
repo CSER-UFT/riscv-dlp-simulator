@@ -460,6 +460,92 @@ Y:  .space 64
 `,
     },
     {
+        id: 'tpu-int8',
+        name: 'TPU: int8 com requantização',
+        nameEn: 'TPU: int8 with requantization',
+        config: { mode: 'tpu', tpu: { dtype: 'int8', shift: 4 } },
+        code: `# Camada quantizada como na TPU v1: entradas e pesos de 8 bits, acumuladores de 32 bits.
+# A ativação aplica ReLU, desloca 4 bits à direita com arredondamento (divide por 16) e satura em
+# [-128, 127] para que a saída volte a caber em 8 bits. Cada linha ocupa só 4 bytes na memória:
+# a coluna Bytes (int8) da memória mostra os elementos de cada palavra.
+.data
+X:  .byte 10, 20, 30, 40
+    .byte -5, 7, 12, 3
+    .byte 100, 100, 100, 100
+    .byte 1, 2, 3, 4
+W:  .byte 1, 2, -3, 50
+    .byte 4, 5, 6, 50
+    .byte 7, 8, 9, 50
+    .byte -1, 0, 1, 50
+Y:  .space 16
+.text
+    la      a0, X
+    la      a1, W
+    la      a2, Y
+    tpu.rdhost 0, (a0), 4
+    tpu.rdw    (a1)
+    tpu.matmul 0, 0, 4
+    tpu.act    4, 0, 4, relu     # coluna 3: 100*200 = 20000 >> 4 = 1250, satura em 127
+    tpu.wrhost (a2), 4, 4
+`,
+    },
+    {
+        id: 'tpu-conv',
+        name: 'TPU: convolução 2D com im2col',
+        nameEn: 'TPU: 2D convolution with im2col',
+        config: { mode: 'tpu' },
+        code: `# Convolução de uma imagem 5 x 5 com quatro filtros 2 x 2, transformada em multiplicação de matrizes.
+# O núcleo escalar monta a matriz im2col: uma linha por posição de saída (4 x 4 = 16 linhas) com os
+# 4 pixels da janela. Os filtros formam o bloco de pesos: linha k = pixel k da janela, coluna c = filtro c.
+# Uma única tpu.matmul de 16 linhas calcula as 64 saídas. Compare o tempo do laço escalar (im2col)
+# com o da TPU: em uma TPU real a montagem fica a cargo do hardware ou do compilador.
+.data
+img: .word 1, 1, 1, 9, 9
+     .word 1, 1, 1, 9, 9
+     .word 1, 1, 1, 9, 9
+     .word 5, 5, 5, 5, 5
+     .word 5, 5, 5, 5, 5
+# Filtros: 0 identidade (pixel do canto), 1 gradiente horizontal, 2 gradiente vertical, 3 soma da janela.
+W:   .word 1, -1, -1, 1         # pixel (0,0) da janela
+     .word 0, 1, -1, 1          # pixel (0,1)
+     .word 0, -1, 1, 1          # pixel (1,0)
+     .word 0, 1, 1, 1           # pixel (1,1)
+col: .space 256                 # matriz im2col 16 x 4
+Y:   .space 256                 # saída 16 x 4 (posição x filtro)
+.text
+    la      s0, img
+    la      s1, col
+    la      a1, W
+    tpu.rdw (a1)                # os pesos vão para a fila enquanto o núcleo monta a im2col
+    li      t3, 4
+    li      t0, 0               # linha de saída
+linha:
+    li      t1, 0               # coluna de saída
+coluna:
+    lw      a2, 0(s0)
+    lw      a3, 4(s0)
+    lw      a4, 20(s0)          # pixel abaixo: uma linha da imagem tem 20 bytes
+    lw      a5, 24(s0)
+    sw      a2, 0(s1)
+    sw      a3, 4(s1)
+    sw      a4, 8(s1)
+    sw      a5, 12(s1)
+    addi    s0, s0, 4
+    addi    s1, s1, 16
+    addi    t1, t1, 1
+    blt     t1, t3, coluna
+    addi    s0, s0, 4           # pula a última coluna da imagem
+    addi    t0, t0, 1
+    blt     t0, t3, linha
+    la      a0, col
+    la      a2, Y
+    tpu.rdhost 0, (a0), 16
+    tpu.matmul 0, 0, 16
+    tpu.act    0, 0, 16, none
+    tpu.wrhost (a2), 0, 16
+`,
+    },
+    {
         id: 'gpu-saxpy',
         name: 'GPU: SAXPY',
         nameEn: 'GPU: SAXPY',
