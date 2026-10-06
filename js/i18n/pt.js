@@ -47,7 +47,7 @@ export default {
     // Execução vetorial --------------------------------------------------------------------------------------
     'vec.noVtype': '{inst}: o tipo vetorial não foi configurado; execute vsetvli (ou vsetivli) antes das instruções vetoriais.',
     'vec.fpSew': '{inst}: operações de ponto flutuante exigem SEW de 32 ou 64 bits (o SEW atual é {sew}).',
-    'vec.eew': '{inst}: a largura do acesso ({eew} bits) deve ser igual ao SEW ({sew} bits), pois o simulador só aceita LMUL = 1.',
+    'vec.eew': '{inst}: a largura do acesso ({eew} bits) deve ser igual ao SEW ({sew} bits); o simulador não tem acessos de largura diferente.',
     'vec.unknown': '{inst}: instrução vetorial não suportada.',
     'vec.issue': 'Emite {inst} na unidade {unit}: {n} elementos, {rate} por ciclo ({g} ciclo(s) de entrada), latência {s}. Primeiros resultados no fim do ciclo {first}; últimos no ciclo {done}.',
     'vec.issueEnd': 'Emite {inst} na unidade {unit}: {n} elementos, {rate} por ciclo, latência {s}; o resultado, um único elemento, fica pronto no fim do ciclo {done}.',
@@ -56,7 +56,7 @@ export default {
     'vec.halt': '{inst}: fim do programa. A emissão para e as instruções em andamento terminam.',
     'vec.branchTaken': '{inst}: desvio tomado para {addr}; a busca perde {n} ciclo(s).',
     'vec.branchNotTaken': '{inst}: desvio não tomado.',
-    'vec.issueVset': '{inst}: vl = {vl}, SEW = {sew} bits, VLMAX = {max}.',
+    'vec.issueVset': '{inst}: vl = {vl}, SEW = {sew} bits, LMUL = {lmul}, VLMAX = {max}.',
     'vec.issueScalar': 'Emite {inst} na unidade escalar; resultado no fim do ciclo {done}.',
     'vec.stall.raw': '{inst} espera: precisa de elementos de {reg} ainda não escritos por {who} (RAW). Com encadeamento, começa no ciclo {t}.',
     'vec.stall.rawNoChain': '{inst} espera: precisa de {reg}, produzido por {who} (RAW). Sem encadeamento, só começa depois que a produtora termina, no ciclo {t}.',
@@ -123,7 +123,7 @@ export default {
     'asm.needVecReg': '{what} deve ser um registrador vetorial (v0 a v31), mas "{tok}" não é',
     'asm.vecOffset': 'acessos vetoriais e da TPU à memória não têm deslocamento: use (registrador), por exemplo (a0), em vez de "{tok}"',
     'asm.needV0': 'o último operando deve ser v0, mas é "{tok}"',
-    'asm.onlyM1': 'o simulador só aceita LMUL = 1 (m1), mas recebeu "{tok}"',
+    'asm.onlyM1': 'o simulador aceita LMUL = 1, 2, 4 ou 8 (m1, m2, m4, m8), sem as frações, mas recebeu "{tok}"',
     'asm.badVtype': 'tipo vetorial inválido: "{tok}" (use e8, e16, e32 ou e64, m1, ta ou tu, ma ou mu)',
     'asm.noSew': 'o tipo vetorial precisa da largura dos elementos: e8, e16, e32 ou e64',
     'asm.vdV0': '"{name}" com máscara não pode escrever em v0, que guarda a máscara',
@@ -240,6 +240,10 @@ export default {
     'q.stalls': 'Por quantos ciclos {inst} esperou antes de ser emitida (no ciclo {c})?',
     'q.cycles': 'Quantos ciclos a execução leva ao todo?',
 
+    'vec.align': '{inst}: com LMUL = {lmul}, o grupo {reg} deve começar em um registrador múltiplo de {lmul}.',
+    'ui.vec.elemN': 'elemento {e} do grupo',
+    'ui.vec.fromElem': 'elementos a partir de {e}',
+
     // Interface --------------------------------------------------------------------------------------------
     'ui.docTitle': 'Simulador de Paralelismo de Dados RISC-V',
     'ui.appTitle': 'Simulador de Paralelismo de Dados <b>RISC-V</b>',
@@ -315,7 +319,7 @@ export default {
     'ui.vec.vregsNote': 'Cada coluna é um elemento; a faixa colorida indica a lane que o processa (o elemento i fica na lane i mod lanes). Elementos a partir de vl (a cauda) aparecem esmaecidos, e os escritos no passo atual, destacados.',
     'ui.vec.noVregs': 'O programa não usa registradores vetoriais.',
     'ui.vec.mask': 'máscara',
-    'ui.vec.vlBox': 'vl = {vl} · e{sew} · VLMAX = {max}',
+    'ui.vec.vlBox': 'vl = {vl} · e{sew} · m{lmul} · VLMAX = {max}',
     'ui.vec.noVtype': 'vtype não configurado',
     'ui.vec.lanesN': '{n} lanes',
     'ui.vec.chainOn': 'com encadeamento',

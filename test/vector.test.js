@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { runReference } from '../js/riscv/machine.js';
 import { assemble } from '../js/riscv/parser.js';
 import { getRaw, rawToValue, maskBit } from '../js/riscv/vector.js';
-import { asm } from './helpers.js';
+import { asm, CONFIGS, assertMatchesReference } from './helpers.js';
+import { simulate } from '../js/simulator.js';
 
 function run(src, { vlen = 256, xlen = 32 } = {}) {
     const r = runReference(asm(src, { xlen }), { exampleValues: false, vlen });
@@ -147,7 +148,7 @@ test('montador: sintaxe vetorial e erros', () => {
     ]);
     assert.equal(p.instructions[1].vm, true);
     assert.deepEqual([p.instructions[1].vs2, p.instructions[1].vs1], ['v1', 'v2']);
-    const bad = assemble('vsetvli t0, a0, e32, m2\nvadd.vv v0, v1, v2, v0.t\nvle32.v v1, 4(a0)\nvadd.vx v1, v2, v3\nvsetvli t0, a0, m1\nvmand.mm v1, v2, v3, v0.t\n# v1 = 3');
+    const bad = assemble('vsetvli t0, a0, e32, mf2\nvadd.vv v0, v1, v2, v0.t\nvle32.v v1, 4(a0)\nvadd.vx v1, v2, v3\nvsetvli t0, a0, m1\nvmand.mm v1, v2, v3, v0.t\n# v1 = 3');
     assert.deepEqual(bad.errors.map((e) => e.line), [1, 2, 3, 4, 5, 6, 7]);
 });
 
@@ -156,4 +157,16 @@ test('pseudoinstruções vetoriais', () => {
     assert.deepEqual(p.instructions.map((i) => i.text), [
         'vrsub.vx v1, v2, zero', 'vxor.vi v1, v2, -1, v0.t', 'vmslt.vv v0, v2, v1', 'vfsgnjn.vv v3, v4, v4', 'vmxor.mm v5, v5, v5',
     ]);
+});
+
+test('LMUL maior que 1: grupos de registradores', () => {
+    // VLEN 128, e32, m4: VLMAX = 16 elementos em v4..v7.
+    const src = '.data\nx: .word 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18\n.text\nli a0, 18\nla a1, x\nvsetvli t0, a0, e32, m4, ta, ma\nvle32.v v4, (a1)\nvadd.vi v8, v4, 1\nvmv.v.i v12, 0\nvredsum.vs v1, v8, v12\nvmv.x.s a2, v1\nvmslt.vx v0, v4, a0';
+    const r = runReference(asm(src), { vlen: 128 });
+    assert.equal(r.x[5], 16n);
+    assert.equal(r.x[12], BigInt((2 + 17) * 16 / 2));
+    // O elemento 5 (o segundo de v5) vale 6 + 1.
+    assert.equal(r.v[9][4], 7);
+    assert.match(simulate(asm('vsetvli t0, a0, e32, m2\nvadd.vv v1, v2, v4'), { trace: false }).warnings.join(' '), /v1/);
+    for (const [name, config] of Object.entries(CONFIGS)) assertMatchesReference(asm(src), { ...config, trace: false }, name);
 });

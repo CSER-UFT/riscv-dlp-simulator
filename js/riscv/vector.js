@@ -1,5 +1,5 @@
 /**
- * Extensão vetorial do RISC-V (RVV 1.0): subconjunto didático com LMUL = 1.
+ * Extensão vetorial do RISC-V (RVV 1.0): subconjunto didático com LMUL = 1, 2, 4 ou 8.
  *
  * Este módulo descreve as instruções vetoriais (registradas na tabela de isa.js) e as executa sobre o estado
  * arquitetural. Cada execução devolve também a lista de acessos de cada elemento (bytes de registradores
@@ -7,7 +7,11 @@
  * para calcular dependências elemento a elemento, encadeamento (chaining) e conflitos.
  *
  * Simplificações em relação à especificação:
- *   apenas LMUL = 1 (m1); a largura dos acessos à memória (EEW) deve ser igual ao SEW;
+ *   LMUL inteiro (m1, m2, m4, m8; sem as frações mf2, mf4, mf8): um operando vetorial é um grupo de LMUL
+ *   registradores consecutivos, começando em um registrador múltiplo de LMUL, e o elemento e fica no
+ *   registrador vd + floor(e × SEW ÷ VLEN); máscaras (v0, destino das comparações) e os escalares das
+ *   reduções (vd e vs1) ocupam um registrador só;
+ *   a largura dos acessos à memória (EEW) deve ser igual ao SEW;
  *   elementos inativos (máscara) e da cauda (índices maiores ou iguais a vl) ficam sempre inalterados
  *   (undisturbed), o que a especificação permite também nas políticas agnostic;
  *   o vl escolhido por vsetvli é sempre min(AVL, VLMAX).
@@ -303,8 +307,11 @@ export function createVectorRegs(vlen) {
     return Array.from({ length: 32 }, () => new Array(vlen / 8).fill(0));
 }
 
-/** VLMAX para um SEW (com LMUL = 1). */
-export const vlmax = (vlen, sew) => vlen / sew;
+/** VLMAX para um SEW e um LMUL. */
+export const vlmax = (vlen, sew, lmul = 1) => (vlen * lmul) / sew;
+
+/** Valores aceitos de LMUL. */
+export const LMULS = [1, 2, 4, 8];
 
 // Execução -------------------------------------------------------------------------------------------------------
 
@@ -337,7 +344,7 @@ export function execVector(st, inst, xlen, vlen) {
 
     if (d.kind === 'vset') {
         const sew = inst.vtype.sew;
-        const max = vlmax(vlen, sew);
+        const max = vlmax(vlen, sew, inst.vtype.lmul ?? 1);
         let avl;
         if (d.name === 'vsetivli') avl = BigInt(inst.imm);
         else if (inst.rs1 !== 'x0') avl = unsigned(xval(inst.rs1), xlen);
@@ -352,37 +359,51 @@ export function execVector(st, inst, xlen, vlen) {
 
     if (!st.vtype) fail('vec.noVtype', { inst: inst.text });
     const sew = st.vtype.sew;
+    const lmul = st.vtype.lmul ?? 1;
     const nb = sew / 8;
     const vl = st.vl;
-    const V = (r) => st.v[index(r)];
+    const regBytes = vlen / 8;
+    const perReg = regBytes / nb;
+    // Operandos que são grupos de LMUL registradores; máscaras e os escalares das reduções ocupam um só.
+    if (lmul > 1 && !['mlog', 'mscalar', 'toScalar', 'fromScalar'].includes(d.kind)) {
+        const groups = [inst.vs2, inst.vs3];
+        if (d.kind !== 'red') groups.push(inst.vs1);
+        if (d.kind !== 'red' && d.kind !== 'cmp') groups.push(inst.vd);
+        for (const r of groups)
+            if (r && index(r) % lmul !== 0) fail('vec.align', { inst: inst.text, reg: r, lmul });
+    }
+    /** Registrador e posição dentro dele do elemento e de um operando (grupo de registradores ou não). */
+    const loc = (r, e, group) => (group ? [index(r) + Math.floor(e / perReg), e % perReg] : [index(r), e]);
     const ri = (r) => index(r);
     const needFp = () => { if (sew !== 32 && sew !== 64) fail('vec.fpSew', { inst: inst.text, sew }); };
     const masked = inst.vm;
     const isActive = (e) => !masked || maskBit(st.v[0], e) === 1;
 
-    const readElem = (slot, r, e) => {
-        fx.reads.push([slot, ri(r), e * sew, e * sew + sew]);
-        return getRaw(V(r), e, sew);
+    const readElem = (slot, r, e, group = true) => {
+        const [reg, k] = loc(r, e, group);
+        fx.reads.push([slot, reg, k * sew, k * sew + sew]);
+        return getRaw(st.v[reg], k, sew);
     };
     const readBit = (slot, r, e) => {
         fx.reads.push([slot, ri(r), e, e + 1]);
-        return maskBit(V(r), e);
+        return maskBit(st.v[index(r)], e);
     };
     const readMaskOf = (slot, e) => {
         if (masked) fx.reads.push([slot, 0, e, e + 1]);
         return isActive(e);
     };
     /** Escreve resultados [slot, e, raw] depois de todas as leituras. */
-    const writeElems = (r, results) => {
-        const reg = V(r);
+    const writeElems = (r, results, group = true) => {
         for (const [slot, e, raw] of results) {
+            const [ix, k] = loc(r, e, group);
+            const reg = st.v[ix];
             const bytes = rawBytes(raw, nb);
-            for (let i = 0; i < nb; i++) reg[e * nb + i] = bytes[i];
-            fx.writes.push([slot, ri(r), e * sew, e * sew + sew, e * nb, bytes]);
+            for (let i = 0; i < nb; i++) reg[k * nb + i] = bytes[i];
+            fx.writes.push([slot, ix, k * sew, k * sew + sew, k * nb, bytes]);
         }
     };
     const writeBits = (r, results) => {
-        const reg = V(r);
+        const reg = st.v[index(r)];
         for (const [slot, e, bit] of results) {
             const b = e >> 3;
             reg[b] = bit ? (reg[b] | (1 << (e & 7))) : (reg[b] & ~(1 << (e & 7)));
@@ -487,13 +508,13 @@ export function execVector(st, inst, xlen, vlen) {
             fx.slots = vl;
             fx.end = true;
             if (vl === 0) break;
-            let acc = rawToValue(readElem(0, inst.vs1, 0), d.type, sew);
+            let acc = rawToValue(readElem(0, inst.vs1, 0, false), d.type, sew);
             for (let e = 0; e < vl; e++) {
                 if (!readMaskOf(e, e)) continue;
                 fx.active++;
                 acc = d.fn(acc, rawToValue(readElem(e, inst.vs2, e), d.type, sew), sew);
             }
-            writeElems(inst.vd, [[-1, 0, valueToRaw(acc, d.type, sew)]]);
+            writeElems(inst.vd, [[-1, 0, valueToRaw(acc, d.type, sew)]], false);
             if (d.type === 'f') fx.flops = fx.active;
             break;
         }

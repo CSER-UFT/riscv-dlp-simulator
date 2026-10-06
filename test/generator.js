@@ -17,6 +17,9 @@ export function generate(seed) {
     const int = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
     let labelId = 0;
     let sew = 32;
+    let lmul = 1;
+    // Registradores alinhados ao LMUL atual (grupos de LMUL registradores).
+    const vr = () => (lmul === 1 ? pick(VR) : `v${lmul * int(1, Math.floor(15 / lmul))}`);
 
     const words = Array.from({ length: 64 }, () => int(-1000, 1000));
     const floats = Array.from({ length: 16 }, () => (int(-400, 400) / 8).toFixed(3));
@@ -34,11 +37,12 @@ export function generate(seed) {
 
     const vectorOp = (inLoop = false) => {
         const k = inLoop ? 0.08 + rnd() * 0.92 : rnd();
-        const vd = pick(VR), a = pick(VR), b = pick(VR);
+        const vd = vr(), a = vr(), b = vr();
         if (k < 0.08) {
             sew = pick([8, 16, 32, 64]);
-            if (rnd() < 0.5) return [`li t5, ${int(0, 40)}`, `vsetvli t6, t5, e${sew}, m1, ${pick(['ta', 'tu'])}, ${pick(['ma', 'mu'])}`];
-            return [`vsetivli t6, ${int(0, 31)}, e${sew}, m1, ta, ma`];
+            lmul = pick([1, 1, 1, 2, 4, 8]);
+            if (rnd() < 0.5) return [`li t5, ${int(0, 80)}`, `vsetvli t6, t5, e${sew}, m${lmul}, ${pick(['ta', 'tu'])}, ${pick(['ma', 'mu'])}`];
+            return [`vsetivli t6, ${int(0, 31)}, e${sew}, m${lmul}, ta, ma`];
         }
         if (k < 0.30) {
             const op = pick(['vadd', 'vsub', 'vand', 'vor', 'vxor', 'vsll', 'vsrl', 'vsra', 'vmin', 'vmaxu', 'vmul', 'vmulh', 'vdiv', 'vremu']);
@@ -70,10 +74,10 @@ export function generate(seed) {
         if (k < 0.81) {
             const [addi, reg] = base();
             const shift = Math.log2(sew / 8);
-            return [addi, 'vid.v v6', `vsll.vi v6, v6, ${shift + int(0, 1)}`, `${rnd() < 0.5 ? `vluxei${sew}.v ${vd}` : `vsuxei${sew}.v ${a}`}, (${reg}), v6${mask()}`];
+            return [addi, 'vid.v v16', `vsll.vi v16, v16, ${shift + int(0, 1)}`, `${rnd() < 0.5 ? `vluxei${sew}.v ${vd}` : `vsuxei${sew}.v ${a}`}, (${reg}), v16${mask()}`];
         }
         if (!fp()) return [`vadd.vv ${vd}, ${a}, ${b}`];
-        if (k < 0.88) return [`${pick(['vfadd', 'vfsub', 'vfmul', 'vfdiv', 'vfmin', 'vfsgnjn'])}.${pick(['vv', 'vf'])} ${vd}, ${a}, ${rnd() < 0.5 ? b : pick(['fa0', 'fa1'])}${mask()}`.replace(/\.vf (v\d), (v\d), (v\d)/, '.vv $1, $2, $3').replace(/\.vv (v\d), (v\d), (fa\d)/, '.vf $1, $2, $3')];
+        if (k < 0.88) return [`${pick(['vfadd', 'vfsub', 'vfmul', 'vfdiv', 'vfmin', 'vfsgnjn'])}.${pick(['vv', 'vf'])} ${vd}, ${a}, ${rnd() < 0.5 ? b : pick(['fa0', 'fa1'])}${mask()}`.replace(/\.vf (v\d+), (v\d+), (v\d+)/, '.vv $1, $2, $3').replace(/\.vv (v\d+), (v\d+), (fa\d)/, '.vf $1, $2, $3')];
         if (k < 0.92) return [`${pick(['vfmacc', 'vfnmsac', 'vfmadd'])}.vf ${vd}, ${pick(['fa0', 'fa1'])}, ${a}${mask()}`];
         if (k < 0.95) return [`${pick(['vmflt', 'vmfle', 'vmfeq'])}.vf v0, ${a}, fa0`];
         if (k < 0.98) return [`${pick(['vfredusum', 'vfredosum', 'vfredmax'])}.vs ${vd}, ${a}, ${b}`, `vfmv.f.s fa1, ${vd}`];

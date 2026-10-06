@@ -25,16 +25,29 @@ export function createContext(sim) {
     const used = new Set(['x2']);
     const vused = new Set();
     const fpRegs = new Set(), maskRegs = new Set();
+    // Com LMUL maior que 1, os operandos vetoriais são grupos de registradores: mostra o grupo inteiro.
+    const maxLmul = Math.max(1, ...sim.program.instructions.map((i) => i.vtype?.lmul ?? 1));
     for (const inst of sim.program.instructions) {
         for (const r of [inst.rd, inst.rs1, inst.rs2, inst.rs3])
             if (r) used.add(r);
-        for (const r of [inst.vd, inst.vs1, inst.vs2, inst.vs3])
-            if (r) vused.add(regs.index(r));
+        for (const r of [inst.vd, inst.vs1, inst.vs2, inst.vs3]) {
+            if (!r) continue;
+            const i = regs.index(r);
+            vused.add(i);
+            const single = ['mlog', 'mscalar', 'toScalar', 'fromScalar'].includes(inst.def.kind) || (inst.def.kind === 'cmp' && r === inst.vd);
+            if (maxLmul > 1 && !single && i % maxLmul === 0) for (let k = 1; k < maxLmul; k++) vused.add(i + k);
+        }
         if (inst.vm || inst.def.kind === 'merge') vused.add(0);
         // Tipo de exibição antes da primeira escrita: ponto flutuante ou máscara, conforme o uso.
         const d = inst.def;
-        if (d.vector && (d.type === 'f' || d.tin === 'f' || d.tout === 'f'))
-            for (const r of [inst.vs1, inst.vs2, inst.vs3, d.kind === 'cmp' ? null : inst.vd]) if (r) fpRegs.add(regs.index(r));
+        if (d.vector && (d.type === 'f' || d.tin === 'f' || d.tout === 'f')) {
+            for (const r of [inst.vs1, inst.vs2, inst.vs3, d.kind === 'cmp' ? null : inst.vd]) {
+                if (!r) continue;
+                const i = regs.index(r);
+                const n = maxLmul > 1 && i % maxLmul === 0 && (d.kind !== 'red' || r === inst.vs2) ? maxLmul : 1;
+                for (let k = 0; k < n; k++) fpRegs.add(i + k);
+            }
+        }
         if (d.kind === 'cmp' || d.kind === 'mlog') maskRegs.add(regs.index(inst.vd));
         if (inst.vm || d.kind === 'merge') maskRegs.add(0);
     }

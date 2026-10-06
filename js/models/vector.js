@@ -264,6 +264,7 @@ export function simulateVector(program, userConfig = {}) {
         const op = plan(inst, fx);
         op.dyn = d.id;
         op.sew = fun.vtype?.sew ?? 32;
+        op.lmul = fun.vtype?.lmul ?? 1;
         if (inst.def.kind === 'vset') {
             op.vl = fun.vl;
             op.vtype = { ...fun.vtype };
@@ -345,7 +346,7 @@ export function simulateVector(program, userConfig = {}) {
                     step(t('vec.branchNotTaken', { inst: code(op) }), ['issue', 'pc']);
                 }
             } else if (inst.def.kind === 'vset') {
-                step(t('vec.issueVset', { inst: code(op), vl: fun.vl, sew: fun.vtype.sew, max: vc.vlen / fun.vtype.sew }), ['issue', 'vl']);
+                step(t('vec.issueVset', { inst: code(op), vl: fun.vl, sew: fun.vtype.sew, lmul: fun.vtype.lmul ?? 1, max: (vc.vlen * (fun.vtype.lmul ?? 1)) / fun.vtype.sew }), ['issue', 'vl']);
             } else {
                 step(t('vec.issueScalar', { inst: code(op), done: op.done }), ['issue']);
             }
@@ -373,7 +374,10 @@ export function simulateVector(program, userConfig = {}) {
             touched.get(reg).add(slot < 0 ? 0 : slot);
         }
         for (const [reg, slots] of touched) {
-            S.view[reg] = { sew: op.sew, type: viewType(def) ?? (fpRegs.has(reg) ? 'f' : 'i') };
+            const type = viewType(def) ?? (fpRegs.has(reg) ? 'f' : 'i');
+            // Posição do registrador no grupo de LMUL registradores: o primeiro elemento dele.
+            const off = type === 'm' || def.kind === 'red' ? 0 : (reg % op.lmul) * (vc.vlen / op.sew);
+            S.view[reg] = { sew: op.sew, type, off };
             const list = [...slots].sort((a, b) => a - b);
             S.written[`v${reg}`] = [...(S.written[`v${reg}`] ?? []), ...list];
             focus.push(`vreg:v${reg}`);

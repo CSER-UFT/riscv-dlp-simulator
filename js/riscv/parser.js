@@ -8,7 +8,7 @@
  *   seções .text, .data e .shared (memória compartilhada de cada bloco da GPU, só com .space e .align), com as diretivas .byte, .half, .word, .dword, .float, .double, .space, .zero,
  *   .align, .balign, .string, .asciz, .ascii, .equ e .set;
  *   valores iniciais de registradores em comentários no formato "# reg = valor";
- *   instruções vetoriais (extensão V, LMUL = 1), com máscara opcional "v0.t" e o tipo de vsetvli
+ *   instruções vetoriais (extensão V, LMUL = 1, 2, 4 ou 8), com máscara opcional "v0.t" e o tipo de vsetvli
  *   (e8, e16, e32 ou e64, m1, ta ou tu, ma ou mu).
  *
  * Erros são acumulados com o número da linha, em vez de interromper a montagem na primeira falha.
@@ -697,7 +697,7 @@ export function assemble(source, { xlen = 32 } = {}) {
                 }
                 case 'vtype': {
                     inst.vtype = parseVtype(rest.slice(k));
-                    return opsText.push(`e${inst.vtype.sew}, m1, ${inst.vtype.ta ? 'ta' : 'tu'}, ${inst.vtype.ma ? 'ma' : 'mu'}`);
+                    return opsText.push(`e${inst.vtype.sew}, m${inst.vtype.lmul}, ${inst.vtype.ta ? 'ta' : 'tu'}, ${inst.vtype.ma ? 'ma' : 'mu'}`);
                 }
             }
             fail(t('asm.unknownFormat', { name: d.name }));
@@ -708,14 +708,17 @@ export function assemble(source, { xlen = 32 } = {}) {
         }
     }
 
-    /** Tipo vetorial de vsetvli: e8, e16, e32 ou e64; m1; ta ou tu; ma ou mu. */
+    /** Tipo vetorial de vsetvli: e8, e16, e32 ou e64; m1, m2, m4 ou m8; ta ou tu; ma ou mu. */
     function parseVtype(tokens) {
-        const vt = { sew: null, ta: false, ma: false };
+        const vt = { sew: null, lmul: 1, ta: false, ma: false };
         for (const raw of tokens) {
             const tok = String(raw).toLowerCase();
             let m;
             if ((m = /^e(\d+)$/.exec(tok)) && SEWS.includes(Number(m[1])) && vt.sew === null) vt.sew = Number(m[1]);
-            else if (/^mf?\d+$/.test(tok)) { if (tok !== 'm1') fail(t('asm.onlyM1', { tok })); }
+            else if (/^mf?\d+$/.test(tok)) {
+                if (!/^m[1248]$/.test(tok)) fail(t('asm.onlyM1', { tok }));
+                vt.lmul = Number(tok.slice(1));
+            }
             else if (tok === 'ta' || tok === 'tu') vt.ta = tok === 'ta';
             else if (tok === 'ma' || tok === 'mu') vt.ma = tok === 'ma';
             else fail(t('asm.badVtype', { tok }));

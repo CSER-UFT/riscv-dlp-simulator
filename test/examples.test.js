@@ -23,6 +23,8 @@ test('os exemplos produzem os resultados esperados', () => {
     };
     assert.deepEqual(Array.from({ length: 32 }, (_, i) => f32(results.saxpy, 'y', i)), Array.from({ length: 32 }, (_, i) => 12 * (i + 1)));
     assert.deepEqual(Array.from({ length: 32 }, (_, i) => f32(results['saxpy-scalar'], 'y', i)), Array.from({ length: 32 }, (_, i) => 12 * (i + 1)));
+    assert.deepEqual(Array.from({ length: 32 }, (_, i) => f32(results['saxpy-lmul'], 'y', i)), Array.from({ length: 32 }, (_, i) => 12 * (i + 1)));
+    assert.ok(results['saxpy-lmul'].stats.instructions < results.saxpy.stats.instructions / 2);
     assert.equal(results.dot.final.f[10], 68);
     assert.equal(results.mask.final.x[10], 3n);
     assert.deepEqual(Array.from({ length: 4 }, (_, i) => f32(results.matvec, 'y', i)), [34.5, 39, 43.5, 48]);

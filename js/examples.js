@@ -40,6 +40,39 @@ laco:
 `,
     },
     {
+        id: 'saxpy-lmul',
+        name: 'SAXPY com LMUL = 4 (grupos de registradores)',
+        nameEn: 'SAXPY with LMUL = 4 (register groups)',
+        config: { mode: 'vector' },
+        code: `# O mesmo SAXPY, mas com LMUL = 4: cada operando vetorial é um grupo de 4 registradores (v4 a v7,
+# v8 a v11), e VLMAX passa de 8 para 32 elementos (VLEN = 256, e32). Os 32 elementos cabem em um
+# bloco só: compare as instruções e os ciclos com o SAXPY com strip mining (m1).
+.data
+a:  .float 2.0
+n:  .word 32
+x:  .float 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+y:  .float 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300, 310, 320
+.text
+    la      t0, a
+    flw     fa0, 0(t0)
+    lw      a0, n
+    la      a1, x
+    la      a2, y
+laco:
+    vsetvli t1, a0, e32, m4, ta, ma   # vl = min(a0, 32)
+    vle32.v v4, (a1)            # grupo v4..v7 = bloco de x
+    vle32.v v8, (a2)            # grupo v8..v11 = bloco de y
+    vfmacc.vf v8, fa0, v4
+    vse32.v v8, (a2)
+    slli    t2, t1, 2
+    add     a1, a1, t2
+    add     a2, a2, t2
+    sub     a0, a0, t1
+    bnez    a0, laco
+    ecall
+`,
+    },
+    {
         id: 'saxpy-scalar',
         name: 'SAXPY escalar (para comparar)',
         nameEn: 'Scalar SAXPY (for comparison)',

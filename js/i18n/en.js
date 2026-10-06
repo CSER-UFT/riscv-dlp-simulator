@@ -47,7 +47,7 @@ export default {
     // Vector execution ----------------------------------------------------------------------------------------
     'vec.noVtype': '{inst}: the vector type is not configured; run vsetvli (or vsetivli) before vector instructions.',
     'vec.fpSew': '{inst}: floating point operations require a SEW of 32 or 64 bits (the current SEW is {sew}).',
-    'vec.eew': '{inst}: the access width ({eew} bits) must equal SEW ({sew} bits), since the simulator only supports LMUL = 1.',
+    'vec.eew': '{inst}: the access width ({eew} bits) must equal SEW ({sew} bits); the simulator has no accesses of a different width.',
     'vec.unknown': '{inst}: unsupported vector instruction.',
     'vec.issue': 'Issues {inst} to unit {unit}: {n} elements, {rate} per cycle ({g} entry cycle(s)), latency {s}. First results at the end of cycle {first}; last ones in cycle {done}.',
     'vec.issueEnd': 'Issues {inst} to unit {unit}: {n} elements, {rate} per cycle, latency {s}; the result, a single element, is ready at the end of cycle {done}.',
@@ -56,7 +56,7 @@ export default {
     'vec.halt': '{inst}: end of program. Issue stops and the instructions in flight finish.',
     'vec.branchTaken': '{inst}: branch taken to {addr}; fetch loses {n} cycle(s).',
     'vec.branchNotTaken': '{inst}: branch not taken.',
-    'vec.issueVset': '{inst}: vl = {vl}, SEW = {sew} bits, VLMAX = {max}.',
+    'vec.issueVset': '{inst}: vl = {vl}, SEW = {sew} bits, LMUL = {lmul}, VLMAX = {max}.',
     'vec.issueScalar': 'Issues {inst} to the scalar unit; result at the end of cycle {done}.',
     'vec.stall.raw': '{inst} waits: it needs elements of {reg} not yet written by {who} (RAW). With chaining, it starts in cycle {t}.',
     'vec.stall.rawNoChain': '{inst} waits: it needs {reg}, produced by {who} (RAW). Without chaining, it only starts after the producer finishes, in cycle {t}.',
@@ -123,7 +123,7 @@ export default {
     'asm.needVecReg': '{what} must be a vector register (v0 to v31), but "{tok}" is not',
     'asm.vecOffset': 'vector and TPU memory accesses have no offset: use (register), for example (a0), instead of "{tok}"',
     'asm.needV0': 'the last operand must be v0, but it is "{tok}"',
-    'asm.onlyM1': 'the simulator only supports LMUL = 1 (m1), but got "{tok}"',
+    'asm.onlyM1': 'the simulator accepts LMUL = 1, 2, 4 or 8 (m1, m2, m4, m8), without fractions, but got "{tok}"',
     'asm.badVtype': 'invalid vector type: "{tok}" (use e8, e16, e32 or e64, m1, ta or tu, ma or mu)',
     'asm.noSew': 'the vector type needs the element width: e8, e16, e32 or e64',
     'asm.vdV0': 'masked "{name}" cannot write v0, which holds the mask',
@@ -240,6 +240,10 @@ export default {
     'q.stalls': 'For how many cycles did {inst} wait before being issued (in cycle {c})?',
     'q.cycles': 'How many cycles does the whole execution take?',
 
+    'vec.align': '{inst}: with LMUL = {lmul}, the group {reg} must start at a register that is a multiple of {lmul}.',
+    'ui.vec.elemN': 'element {e} of the group',
+    'ui.vec.fromElem': 'elements from {e}',
+
     // Interface --------------------------------------------------------------------------------------------
     'ui.docTitle': 'RISC-V Data Level Parallelism Simulator',
     'ui.appTitle': '<b>RISC-V</b> Data Level Parallelism Simulator',
@@ -315,7 +319,7 @@ export default {
     'ui.vec.vregsNote': 'Each column is an element; the colored strip shows the lane that processes it (element i goes to lane i mod lanes). Elements from vl on (the tail) are dimmed, and those written in the current step are highlighted.',
     'ui.vec.noVregs': 'The program does not use vector registers.',
     'ui.vec.mask': 'mask',
-    'ui.vec.vlBox': 'vl = {vl} · e{sew} · VLMAX = {max}',
+    'ui.vec.vlBox': 'vl = {vl} · e{sew} · m{lmul} · VLMAX = {max}',
     'ui.vec.noVtype': 'vtype not configured',
     'ui.vec.lanesN': '{n} lanes',
     'ui.vec.chainOn': 'with chaining',

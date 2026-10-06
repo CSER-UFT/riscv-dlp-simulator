@@ -98,9 +98,12 @@ function vregPanel(ctx, snap, focus) {
     const vlen = cfg.vector.vlen;
     const L = cfg.vector.lanes;
     const curSew = snap.vtype?.sew ?? 32;
+    const curLmul = snap.vtype?.lmul ?? 1;
     const vl = snap.vl;
     const rows = ctx.vregs.map((i) => {
-        const view = snap.view[i] ?? { sew: curSew, type: ctx.maskRegs.has(i) ? 'm' : (ctx.fpRegs.has(i) ? 'f' : 'i') };
+        const isMask = ctx.maskRegs.has(i);
+        const view = snap.view[i] ?? { sew: curSew, type: isMask ? 'm' : (ctx.fpRegs.has(i) ? 'f' : 'i'), off: isMask ? 0 : (i % curLmul) * (vlen / curSew) };
+        const off = view.off ?? 0;
         const bytes = snap.v[i];
         const written = new Set(snap.written[`v${i}`] ?? []);
         let cells;
@@ -109,9 +112,12 @@ function vregPanel(ctx, snap, focus) {
             cells = Array.from({ length: n }, (_, e) => `<td class="${e >= vl ? 'tail' : ''} ${written.has(e) ? 'new' : ''}" style="--lane:${laneColor(e % L)}">${maskBit(bytes, e)}</td>`).join('');
         } else {
             const n = vlen / view.sew;
-            cells = Array.from({ length: n }, (_, e) => `<td class="${e >= vl ? 'tail' : ''} ${written.has(e) ? 'new' : ''}" style="--lane:${laneColor(e % L)}">${esc(elemText(bytes, e, view.sew, view.type))}</td>`).join('');
+            cells = Array.from({ length: n }, (_, k) => {
+                const e = off + k;
+                return `<td class="${e >= vl ? 'tail' : ''} ${written.has(e) ? 'new' : ''}" style="--lane:${laneColor(e % L)}" title="${off ? esc(t('ui.vec.elemN', { e })) : ''}">${esc(elemText(bytes, k, view.sew, view.type))}</td>`;
+            }).join('');
         }
-        const kind = view.type === 'm' ? t('ui.vec.mask') : `e${view.sew}${view.type === 'f' ? ' float' : ''}`;
+        const kind = view.type === 'm' ? t('ui.vec.mask') : `e${view.sew}${view.type === 'f' ? ' float' : ''}${off ? ` · ${t('ui.vec.fromElem', { e: off })}` : ''}`;
         return `<tr class="${focus.has(`vreg:v${i}`) ? 'focus' : ''}"><th>v${i}<span class="abi">${esc(kind)}</span></th>${cells}</tr>`;
     }).join('');
     return `<section class="panel vregs ${[...focus].some((f) => f.startsWith('vreg:')) ? 'focus' : ''}" data-part="vregs">
@@ -125,7 +131,7 @@ export function renderVector(el, ctx, snap) {
     const cfg = ctx.sim.config;
     el.dataset.model = ctx.sim.model;
     const vt = snap.vtype;
-    const vlText = vt ? t('ui.vec.vlBox', { vl: snap.vl, sew: vt.sew, max: cfg.vector.vlen / vt.sew }) : t('ui.vec.noVtype');
+    const vlText = vt ? t('ui.vec.vlBox', { vl: snap.vl, sew: vt.sew, lmul: vt.lmul ?? 1, max: (cfg.vector.vlen * (vt.lmul ?? 1)) / vt.sew }) : t('ui.vec.noVtype');
     const options = [
         `VLEN ${cfg.vector.vlen}`,
         t('ui.vec.lanesN', { n: cfg.vector.lanes }),
