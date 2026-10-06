@@ -311,7 +311,7 @@ export default {
     <dt>Comparar</dt>
     <dd>Executa o mesmo programa com outra configuração (por exemplo, sem encadeamento, ou com 8 lanes) e mostra o speedup, as estatísticas, as diferenças de configuração e as duas linhas do tempo lado a lado.</dd>
     <dt>Exportar</dt>
-    <dd>Linha do tempo e tabela de eventos em CSV e em LaTeX (cabeçalho com fundo <code>tabAzul</code> e texto branco, com <code>\\hline</code>, sem booktabs).</dd>
+    <dd>Linha do tempo e tabela de eventos em CSV e em LaTeX (cabeçalho com fundo <code>tabAzul</code> e texto branco, com <code>\\hline</code>, sem booktabs). O item <em>Estado do ciclo atual</em> gera o passo mostrado no diagrama, pronto para slides: no processador vetorial, os registradores vetoriais e uma figura TikZ das lanes e estágios de cada unidade; na TPU, uma figura TikZ do array sistólico com peso, entrada e soma parcial de cada elemento, além do Unified Buffer e dos acumuladores; na GPU, os warps com a máscara e a pilha SIMT e o último acesso à memória com as linhas ou os bancos. Requer os pacotes <code>xcolor</code> (opção <code>table</code>), <code>graphicx</code> e <code>tikz</code>.</dd>
     <dt>Copiar link</dt>
     <dd>Gera um endereço que abre a mesma simulação, comparação ou exercício, com o programa e a configuração embutidos.</dd>
 </dl>`,

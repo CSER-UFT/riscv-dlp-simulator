@@ -12,7 +12,7 @@ const csvCell = (s) => {
     return /[",\n;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 };
 
-const tex = (s) => String(s ?? '')
+export const tex = (s) => String(s ?? '')
     .replace(/\\/g, '\\textbackslash{}')
     .replace(/([#$%&_{}])/g, '\\$1')
     .replace(/~/g, '\\textasciitilde{}')
@@ -51,7 +51,7 @@ const PREAMBLE = (title) => [
     '\\providecolor{tabAzul}{HTML}{1F4E79}',
 ];
 
-function header(cells) {
+export function header(cells) {
     return `\\rowcolor{tabAzul}${cells.map((c) => `\\color{white}${c}`).join(' & ')} \\\\ \\hline`;
 }
 

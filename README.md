@@ -48,7 +48,7 @@ Exemplos da TPU: C = ReLU(A × B), lote de 12 linhas, lote pequeno limitado pelo
 * **Passo a passo** com uma explicação de cada acontecimento e **linha do tempo** por instrução.
 * **Exercício**: o aluno preenche o ciclo de emissão, do primeiro resultado e de conclusão de cada instrução vetorial, e o simulador corrige.
 * **Comparar**: o mesmo programa com outra configuração (por exemplo, sem encadeamento ou com mais lanes), com speedup, estatísticas e linhas do tempo lado a lado.
-* **Exportar** linha do tempo e tabela de eventos em CSV e em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs).
+* **Exportar** linha do tempo e tabela de eventos em CSV e em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), e o estado do ciclo atual em LaTeX com figuras TikZ: lanes e estágios das unidades vetoriais, array sistólico da TPU, warps com a pilha SIMT e coalescência ou bancos da GPU.
 * **Copiar link** que abre a mesma simulação, comparação ou exercício.
 
 Exemplos prontos: SAXPY com strip mining e a versão escalar, encadeamento, lanes, produto escalar com redução, máscara, acesso com passo, acesso indexado e matriz vezes vetor.

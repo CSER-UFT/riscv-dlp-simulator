@@ -10,9 +10,9 @@ import { esc, COLORS, memoryPanel, statsPanel } from './panels.js';
 import { words } from '../riscv/memory.js';
 import { residentBlocks } from '../models/gpu.js';
 
-const warpColor = (w) => COLORS[(w * 3 + 1) % COLORS.length];
+export const warpColor = (w) => COLORS[(w * 3 + 1) % COLORS.length];
 
-function instAt(ctx, pc) {
+export function instAt(ctx, pc) {
     const i = indexAt(ctx.sim.program, pc);
     return i < 0 ? null : ctx.sim.program.instructions[i];
 }

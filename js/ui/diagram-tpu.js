@@ -8,8 +8,8 @@ import { t } from '../i18n/index.js';
 import { esc, dynColor, COLORS, registersPanel, memoryPanel, statsPanel } from './panels.js';
 import { issuePanel, scalarPanel } from './diagram-vector.js';
 
-const rowColor = (r) => COLORS[(r + 3) % COLORS.length];
-const num = (v) => (v === null || v === undefined ? '' : v.toString());
+export const rowColor = (r) => COLORS[(r + 3) % COLORS.length];
+export const num = (v) => (v === null || v === undefined ? '' : v.toString());
 
 function unitPanel(ctx, snap, u, focus) {
     const c = snap.cycle;
@@ -34,8 +34,12 @@ function fifoPanel(ctx, snap, focus) {
         <p class="note">${snap.array ? t('ui.tpu.inArray', { k: snap.array.k }) : t('ui.tpu.noArray')}</p></section>`;
 }
 
-/** Array sistólico no ciclo do instantâneo. */
-function arrayPanel(ctx, snap, focus) {
+/**
+ * Estado do array sistólico no ciclo do instantâneo: célula de cada elemento de processamento (linha de entrada
+ * r, entrada x, peso w e soma parcial), os resultados que saem embaixo e os próximos valores de cada linha.
+ * Usado pelo diagrama e pela exportação em TikZ.
+ */
+export function systolicState(ctx, snap) {
     const N = ctx.sim.config.tpu.n;
     const c = snap.cycle;
     const cells = Array.from({ length: N }, () => new Array(N).fill(null));
@@ -58,6 +62,12 @@ function arrayPanel(ctx, snap, focus) {
                 if (r >= 0) inputs[i].push({ r, x: op.X[r][i] });
         }
     }
+    return { N, cells, outputs, inputs, weights };
+}
+
+/** Array sistólico no ciclo do instantâneo. */
+function arrayPanel(ctx, snap, focus) {
+    const { N, cells, outputs, inputs, weights } = systolicState(ctx, snap);
     const body = cells.map((row, i) => {
         const queue = inputs[i].slice().reverse().map((q) => `<span class="q" style="--tag:${rowColor(q.r)}">${esc(num(q.x))}</span>`).join('');
         const pes = row.map((cell, j) => {

@@ -13,6 +13,7 @@ import { renderCompare } from './ui/compare.js';
 import { renderModels } from './ui/models.js';
 import { exampleName } from './examples.js';
 import { timelineCsv, timelineLatex, eventsCsv, eventsLatex, download } from './ui/export.js';
+import { stateLatex } from './ui/export-state.js';
 import { Help, MODEL_SECTION } from './ui/help.js';
 import { configDiff } from './ui/summary.js';
 
@@ -205,6 +206,11 @@ for (const item of buttons.export.querySelectorAll('[data-export]')) {
             case 'events-csv': return download('eventos.csv', eventsCsv(sim), 'text/csv');
             case 'events-tex': return download('eventos.tex', eventsLatex(sim, false), 'application/x-tex');
             case 'events-blank': return download('eventos-em-branco.tex', eventsLatex(sim, true), 'application/x-tex');
+            case 'state-tex': {
+                if (c.kind !== 'sim') return;
+                const snap = currentSnap(c);
+                return download(`estado-ciclo-${snap.cycle}.tex`, stateLatex(c.ctx, snap), 'application/x-tex');
+            }
         }
     });
 }
@@ -242,6 +248,7 @@ function setButtons(kind) {
     buttons.compare.classList.toggle('hidden', kind !== 'sim');
     buttons.exercise.classList.toggle('hidden', kind !== 'sim');
     buttons.export.classList.toggle('hidden', !kind);
+    buttons.export.querySelector('[data-export="state-tex"]').classList.toggle('hidden', kind !== 'sim');
     buttons.link.classList.toggle('hidden', !kind);
 }
 
@@ -281,10 +288,10 @@ tabManager.addEventListener('tab-set', () => {
     sheet.classList.add('hidden');
     timeline.show(true);
     const { sim, ctx, curState, curInterState, numInterStates } = c;
-    let snap = sim.states[curState];
+    const snap = currentSnap(c);
     let message;
     if (numInterStates[curState] > 0 && curInterState < numInterStates[curState]) {
-        [message, snap] = sim.interStates[curState][curInterState];
+        [message] = sim.interStates[curState][curInterState];
     } else if (curState === 0) {
         message = t('ui.initialState');
     } else if (curState === sim.states.length - 1) {
@@ -305,6 +312,13 @@ tabManager.addEventListener('tab-set', () => {
     controller.show();
     controller.updateInfo(curState, curInterState, c.numStates, numInterStates, message);
 });
+
+/** Instantâneo mostrado na aba de simulação (estado do ciclo ou passo intermediário). */
+function currentSnap(c) {
+    const { sim, curState, curInterState, numInterStates } = c;
+    if (numInterStates[curState] > 0 && curInterState < numInterStates[curState]) return sim.interStates[curState][curInterState][1];
+    return sim.states[curState];
+}
 
 controller.addEventListener('update', () => {
     tabManager.updateContents({ curState: controller.curState, curInterState: controller.curInterState });

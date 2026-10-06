@@ -310,7 +310,7 @@ export default {
     <dt>Compare</dt>
     <dd>Runs the same program with another configuration (for example, without chaining, or with 8 lanes) and shows the speedup, the statistics, the configuration differences and both timelines side by side.</dd>
     <dt>Export</dt>
-    <dd>Timeline and event table in CSV and LaTeX (header with a <code>tabAzul</code> background and white text, with <code>\\hline</code>, without booktabs).</dd>
+    <dd>Timeline and event table in CSV and LaTeX (header with a <code>tabAzul</code> background and white text, with <code>\\hline</code>, without booktabs). The <em>Current cycle state</em> item generates the step shown in the diagram, ready for slides: in the vector processor, the vector registers and a TikZ figure of the lanes and stages of each unit; in the TPU, a TikZ figure of the systolic array with the weight, input and partial sum of each element, plus the Unified Buffer and the accumulators; in the GPU, the warps with the mask and the SIMT stack and the last memory access with its lines or banks. Requires the packages <code>xcolor</code> (option <code>table</code>), <code>graphicx</code> and <code>tikz</code>.</dd>
     <dt>Copy link</dt>
     <dd>Builds an address that opens the same simulation, comparison or exercise, with the program and configuration embedded.</dd>
 </dl>`,

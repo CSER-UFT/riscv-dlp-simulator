@@ -48,23 +48,40 @@ function groupElems(op, g) {
     return out;
 }
 
-function unitPanel(ctx, snap, u, i, focus) {
+/**
+ * Ocupação de uma unidade no ciclo do instantâneo: grade lanes x estágios com o elemento em cada posição e,
+ * para cada operação, os elementos que entram neste ciclo. Usada pelo diagrama e pela exportação em TikZ.
+ */
+export function laneGrid(ctx, snap, i) {
     const cfg = ctx.sim.config;
     const L = cfg.vector.lanes;
     const unitCfg = cfg.vector.units[i];
-    const depth = Math.max(...unitCfg.classes.map((c) => cfg.latency[c]));
+    const depth = Math.max(...unitCfg.classes.map((k) => cfg.latency[k]));
     const grid = Array.from({ length: L }, () => new Array(depth).fill(null));
     const c = snap.cycle;
-    const lines = [];
-    for (const op of u.ops) {
-        let entering = null;
+    const entering = [];
+    for (const op of snap.units[i].ops) {
+        let ent = null;
         for (let g = 0; g < op.G; g++) {
             const stage = c - (op.t0 + g);
             if (stage < 0 || stage >= op.S) continue;
             const elems = groupElems(op, g);
-            if (stage === 0) entering = elems;
+            if (stage === 0) ent = elems;
             for (const e of elems) grid[e % L][stage] = { e, dyn: op.dyn };
         }
+        entering.push(ent);
+    }
+    return { L, depth, grid, entering };
+}
+
+function unitPanel(ctx, snap, u, i, focus) {
+    const cfg = ctx.sim.config;
+    const unitCfg = cfg.vector.units[i];
+    const { depth, grid, entering: ents } = laneGrid(ctx, snap, i);
+    const c = snap.cycle;
+    const lines = [];
+    for (const [k, op] of u.ops.entries()) {
+        const entering = ents[k];
         const entered = Math.min(op.slots, Math.max(0, (c - op.t0 + 1)) * op.rate);
         const lastWrite = op.t0 + op.G - 1 + op.S - 1;
         let state;
@@ -93,14 +110,18 @@ function elemText(bytes, e, sew, type) {
     return rawToValue(raw, 'i', sew).toString();
 }
 
-function vregPanel(ctx, snap, focus) {
+/**
+ * Linhas dos registradores vetoriais usados pelo programa: nome, tipo de exibição e células (texto, cauda,
+ * escrita no passo, lane). Usadas pelo diagrama e pela exportação em LaTeX.
+ */
+export function vregRows(ctx, snap) {
     const cfg = ctx.sim.config;
     const vlen = cfg.vector.vlen;
     const L = cfg.vector.lanes;
     const curSew = snap.vtype?.sew ?? 32;
     const curLmul = snap.vtype?.lmul ?? 1;
     const vl = snap.vl;
-    const rows = ctx.vregs.map((i) => {
+    return ctx.vregs.map((i) => {
         const isMask = ctx.maskRegs.has(i);
         const view = snap.view[i] ?? { sew: curSew, type: isMask ? 'm' : (ctx.fpRegs.has(i) ? 'f' : 'i'), off: isMask ? 0 : (i % curLmul) * (vlen / curSew) };
         const off = view.off ?? 0;
@@ -109,16 +130,26 @@ function vregPanel(ctx, snap, focus) {
         let cells;
         if (view.type === 'm') {
             const n = vlen / curSew;
-            cells = Array.from({ length: n }, (_, e) => `<td class="${e >= vl ? 'tail' : ''} ${written.has(e) ? 'new' : ''}" style="--lane:${laneColor(e % L)}">${maskBit(bytes, e)}</td>`).join('');
+            cells = Array.from({ length: n }, (_, e) => ({ e, text: String(maskBit(bytes, e)), tail: e >= vl, isNew: written.has(e), lane: e % L }));
         } else {
             const n = vlen / view.sew;
             cells = Array.from({ length: n }, (_, k) => {
                 const e = off + k;
-                return `<td class="${e >= vl ? 'tail' : ''} ${written.has(e) ? 'new' : ''}" style="--lane:${laneColor(e % L)}" title="${off ? esc(t('ui.vec.elemN', { e })) : ''}">${esc(elemText(bytes, k, view.sew, view.type))}</td>`;
-            }).join('');
+                return { e, text: elemText(bytes, k, view.sew, view.type), tail: e >= vl, isNew: written.has(e), lane: e % L };
+            });
         }
         const kind = view.type === 'm' ? t('ui.vec.mask') : `e${view.sew}${view.type === 'f' ? ' float' : ''}${off ? ` · ${t('ui.vec.fromElem', { e: off })}` : ''}`;
-        return `<tr class="${focus.has(`vreg:v${i}`) ? 'focus' : ''}"><th>v${i}<span class="abi">${esc(kind)}</span></th>${cells}</tr>`;
+        return { i, name: `v${i}`, kind, off, cells };
+    });
+}
+
+function vregPanel(ctx, snap, focus) {
+    const cfg = ctx.sim.config;
+    const vlen = cfg.vector.vlen;
+    const L = cfg.vector.lanes;
+    const rows = vregRows(ctx, snap).map((row) => {
+        const cells = row.cells.map((cl) => `<td class="${cl.tail ? 'tail' : ''} ${cl.isNew ? 'new' : ''}" style="--lane:${laneColor(cl.lane)}" title="${row.off ? esc(t('ui.vec.elemN', { e: cl.e })) : ''}">${esc(cl.text)}</td>`).join('');
+        return `<tr class="${focus.has(`vreg:${row.name}`) ? 'focus' : ''}"><th>${row.name}<span class="abi">${esc(row.kind)}</span></th>${cells}</tr>`;
     }).join('');
     return `<section class="panel vregs ${[...focus].some((f) => f.startsWith('vreg:')) ? 'focus' : ''}" data-part="vregs">
         <h3>${t('ui.vec.vregs')} <span class="sub">${t('ui.vec.vregsSub', { vlen, lanes: L })}</span></h3>
