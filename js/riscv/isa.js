@@ -17,6 +17,7 @@
 import { signed, unsigned, f32ToBits, bitsToF32, f64ToBits, bitsToF64, floatToInt, fusedMulAdd } from './bits.js';
 import { registerVector, VECTOR_PSEUDO } from './vector.js';
 import { registerTpu } from './tpu.js';
+import { registerGpu } from './gpu.js';
 
 /** Classes de operação. A ordem define a ordem de exibição na configuração. */
 export const CLASSES = {
@@ -247,6 +248,9 @@ registerVector(def);
 
 // TPU (instruções customizadas) -------------------------------------------------------------------------
 registerTpu(def);
+
+// GPU (instruções customizadas) -------------------------------------------------------------------------
+registerGpu(def);
 
 /**
  * Busca a definição de uma instrução.

@@ -4,6 +4,7 @@ import { runReference, initialState, effectiveAddress, resolveControl } from '..
 import * as memory from '../js/riscv/memory.js';
 import { execVector } from '../js/riscv/vector.js';
 import { execTpu } from '../js/riscv/tpu.js';
+import { runGpuReference } from '../js/riscv/gpu.js';
 import { simulate } from '../js/simulator.js';
 import { normalizeConfig } from '../js/core/config.js';
 
@@ -57,9 +58,72 @@ export const TPU_CONFIGS = {
     'TPU latência 1': { mode: 'tpu', branchPenalty: 0, tpu: { memLatency: 1, actLatency: 1 } },
 };
 
+/** Configurações da GPU. */
+export const GPU_CONFIGS = {
+    'GPU padrão': { mode: 'gpu' },
+    'GPU 1 warp': { mode: 'gpu', gpu: { warps: 1 } },
+    'GPU 8 warps de 4, 2 vias, GTO': { mode: 'gpu', gpu: { warps: 8, warpSize: 4, lanes: 2, scheduler: 'gto' } },
+    'GPU 2 warps de 16, linhas de 4 bytes': { mode: 'gpu', gpu: { warps: 2, warpSize: 16, lanes: 4, lineBytes: 4, memLatency: 5 } },
+    'GPU latências altas': { mode: 'gpu', gpu: { memLatency: 60 }, latency: { alu: 3, mul: 6, div: 12, load: 4, fadd: 5, fmul: 6, fdiv: 12 } },
+};
+
+/** Compara o estado final da GPU com a referência (threads em sequência) e verifica as regras de tempo. */
+export function assertGpuMatchesReference(program, config, label = '') {
+    const cfg = normalizeConfig(config).config;
+    const ref = runGpuReference(program, cfg.gpu, { exampleValues: cfg.exampleValues });
+    const sim = simulate(program, { maxCycles: 50000, ...config });
+    assert.deepEqual(sim.errors ?? [], [], `${label}: erros de configuração`);
+    assert.ok(sim.finished, `${label}: a simulação não terminou (${sim.warnings.join(' ')})`);
+    ref.threads.forEach((th, tid) => {
+        for (let i = 0; i < 32; i++) {
+            assert.equal(sim.final.threads[tid].x[i], th.x[i], `${label}: thread ${tid}, x${i} difere`);
+            assert.ok(Object.is(sim.final.threads[tid].f[i], th.f[i]), `${label}: thread ${tid}, f${i} difere`);
+        }
+    });
+    const addrs = new Set([...ref.mem.keys(), ...sim.final.mem.keys()]);
+    for (const a of addrs)
+        assert.equal(sim.final.mem.get(a) ?? 0, ref.mem.get(a) ?? 0, `${label}: memória em 0x${a.toString(16)} difere`);
+    assert.equal(sim.stats.threadInstructions, ref.executed, `${label}: instruções por thread diferem`);
+    checkGpuTiming(sim, label);
+    return sim;
+}
+
+/**
+ * Verificação independente das regras de tempo da GPU: uma emissão por ciclo, scoreboard por warp (nenhuma
+ * instrução lê ou escreve um registrador com escrita pendente do mesmo warp), espera pela resolução dos
+ * desvios e ocupação das unidades sem sobreposição.
+ */
+export function checkGpuTiming(sim, label = '') {
+    const seen = new Set();
+    const lastWrite = new Map();
+    const branchDone = new Map();
+    const busy = new Map();
+    for (const d of sim.dyn) {
+        const tm = d.timing;
+        assert.ok(!seen.has(tm.t0), `${label}: duas emissões no ciclo ${tm.t0}`);
+        seen.add(tm.t0);
+        const inst = sim.program.instructions[d.index];
+        const w = tm.warp;
+        if (branchDone.has(w)) assert.ok(tm.t0 > branchDone.get(w), `${label}: ${d.text} emitida antes de o desvio resolver`);
+        const lw = lastWrite.get(w) ?? new Map();
+        for (const r of [inst.rs1, inst.rs2, inst.rs3, inst.rd])
+            if (r && r !== 'x0' && lw.has(r)) assert.ok(tm.t0 > lw.get(r), `${label}: ${d.text} usou ${r} com escrita pendente`);
+        if (inst.rd && inst.rd !== 'x0' && inst.def.cls !== 'store') lw.set(inst.rd, tm.done);
+        lastWrite.set(w, lw);
+        if (inst.def.cls === 'branch' || inst.def.cls === 'jump') branchDone.set(w, tm.done);
+        else branchDone.delete(w);
+        const occ = [tm.t0, tm.t0 + tm.occ - 1];
+        const list = busy.get(tm.unit) ?? [];
+        for (const [a, b] of list) assert.ok(occ[1] < a || occ[0] > b, `${label}: ${d.text} ocupou a unidade junto com outra instrução`);
+        list.push(occ);
+        busy.set(tm.unit, list);
+    }
+}
+
 /** Compara o estado final do modelo com o simulador de referência e verifica as regras de tempo. */
 export function assertMatchesReference(program, config, label = '') {
     const cfg = normalizeConfig(config).config;
+    if (cfg.mode === 'gpu') return assertGpuMatchesReference(program, config, label);
     const ref = runReference(program, { exampleValues: cfg.exampleValues, vlen: cfg.vector.vlen, tpu: cfg.tpu });
     const sim = simulate(program, { maxCycles: 50000, ...config });
     assert.deepEqual(sim.errors ?? [], [], `${label}: erros de configuração`);

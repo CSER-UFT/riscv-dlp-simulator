@@ -5,7 +5,8 @@
 import { t } from '../i18n/index.js';
 
 /** Colunas da tabela de eventos. */
-export function eventColumns() {
+export function eventColumns(sim) {
+    if (sim?.model === 'gpu') return [{ key: 'issue', label: t('ev.issue') }, { key: 'done', label: t('ev.done') }];
     return [
         { key: 'issue', label: t('ev.issue') },
         { key: 'first', label: t('ev.first') },

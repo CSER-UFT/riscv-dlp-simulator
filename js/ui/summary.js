@@ -5,6 +5,18 @@ import { t } from '../i18n/index.js';
 import { className, SCALAR_LATENCY_IDS } from '../core/config.js';
 
 export function configSummary(cfg) {
+    if (cfg.mode === 'gpu') {
+        const g = cfg.gpu;
+        return [
+            t('mode.gpu'), `RV${cfg.xlen}`,
+            t('summary.gpuWarps', { w: g.warps, s: g.warpSize, n: g.warps * g.warpSize }),
+            t('summary.gpuLanes', { lanes: g.lanes, g: Math.ceil(g.warpSize / g.lanes) }),
+            t(`ui.gpu.policy.${g.scheduler}`),
+            t('summary.gpuMem', { lat: g.memLatency, b: g.lineBytes }),
+            `${t('summary.scalarLat')}: ${SCALAR_LATENCY_IDS.map((k) => `${className(k)} ${cfg.latency[k]}`).join(', ')}`,
+            t('summary.clock', { f: cfg.freqGHz }),
+        ];
+    }
     if (cfg.mode === 'tpu') {
         const tc = cfg.tpu;
         return [

@@ -3,7 +3,7 @@
  */
 export default {
     title: 'RISC-V Data Level Parallelism Simulator',
-    lead: 'Educational simulator of architectures that exploit data level parallelism, starting with the vector processor of the RISC-V V extension. Developed for the <strong>Computer Science</strong> program at the <strong>Federal University of Tocantins</strong> (UFT), Brazil.',
+    lead: 'Educational simulator of architectures that exploit data level parallelism: the vector processor of the RISC-V V extension, a GPU (SIMT) and a TPU (systolic array). Developed for the <strong>Computer Science</strong> program at the <strong>Federal University of Tocantins</strong> (UFT), Brazil.',
     searchPlaceholder: 'Search the help',
     noResults: 'No section contains this term.',
     tocTitle: 'Contents',
@@ -75,7 +75,7 @@ export default {
     <dd>Thousands of threads run in groups (warps) that share the same instruction (SIMT), with fast switching between groups to hide memory latency.</dd>
 </dl>
 <p><strong>Domain specific architectures</strong>, such as Google's TPU, take the idea further: a systolic array of multipliers dedicated to matrix multiplication.</p>
-<p class="tip">The simulator has the vector processor and the TPU; the GPU model is planned.</p>`,
+<p class="tip">The simulator has all three models: the vector processor, the GPU and the TPU.</p>`,
         },
         {
             id: 'rvv',
@@ -162,6 +162,40 @@ export default {
 <p>To observe the start up latency, compare a run with a small vl (time dominated by latency) and another with a large vl (dominated by vl ÷ lanes).</p>`,
         },
         {
+            id: 'gpu',
+            title: 'The GPU',
+            html: `
+<p>A GPU runs the same program (the <strong>kernel</strong>) on thousands of threads. Threads are grouped into <strong>warps</strong> that share fetch and decode: for each issued instruction, every active thread of the warp executes it, each with its own registers. This is the <strong>SIMT</strong> model (<em>single instruction, multiple threads</em>). This simulator models a single multiprocessor (SM) with a configurable number of warps (4 of 8 threads by default), in the style of Hennessy and Patterson and of the GPGPU-Sim simulator, scaled down to fit on screen.</p>
+<h3>The kernel</h3>
+<p>The kernel is an ordinary RISC-V program, run by every thread, with five extra instructions:</p>
+<table>
+    <tr><th>Instruction</th><th>Effect</th></tr>
+    <tr><td><code>gpu.tid rd</code></td><td>global thread index: warp × warp size + position in the warp</td></tr>
+    <tr><td><code>gpu.ntid rd</code></td><td>total number of threads</td></tr>
+    <tr><td><code>gpu.wid rd</code></td><td>warp index</td></tr>
+    <tr><td><code>gpu.lane rd</code></td><td>position of the thread in the warp</td></tr>
+    <tr><td><code>gpu.bar</code></td><td>barrier: the warp waits until every warp still running arrives</td></tr>
+</table>
+<p>Each thread has its own registers (with its own stack in <code>sp</code>), and memory is shared. A thread finishes at <code>ecall</code> or when it runs past the end of the code. The pattern used in the examples is the loop with a stride equal to the number of threads: thread i processes elements i, i + ntid, i + 2 × ntid..., which works with any number of warps.</p>
+<h3>Scheduling and latency hiding</h3>
+<p>Each cycle, the <strong>scheduler</strong> picks a ready warp and issues its next instruction. A warp is not ready if it finished, is at a barrier, waits for a branch to resolve, reads or writes a register with a pending write (each warp's <em>scoreboard</em>) or needs a busy unit. Round robin starts from the warp after the last one issued; greedy then oldest (<em>GTO</em>) repeats the same warp while it is ready and otherwise picks the lowest index.</p>
+<p>A load takes the memory latency (20 cycles by default). With a single warp the SM sits waiting; with several, the scheduler issues instructions from other warps while the first one waits. This is how GPUs <strong>hide latency</strong>: instead of large caches and out of order execution, many threads ready to switch in. In the <em>GPU: SAXPY</em> example, compare 1 warp with 4 warps.</p>
+<h3>Units</h3>
+<p>The ALU runs integer, branch and GPU instructions; the FPU, floating point, integer multiply and divide; the LSU, loads and stores. Each unit has a number of ways: with 8 threads per warp and 4 ways, an instruction takes the unit for 2 cycles. An instruction with latency L issued in cycle c that takes the unit for g cycles has its result at the end of cycle c + g + L minus 2.</p>
+<h3>Divergence</h3>
+<p>When the threads of a warp take different paths at a branch, the warp runs both paths one after the other, each with only that path's threads (the active thread <strong>mask</strong>), and the threads rejoin at the branch's <strong>immediate post dominator</strong>: the first instruction all paths go through. The <strong>SIMT stack</strong> holds the pending paths: the top is the path being executed, with its reconvergence point. The simulator computes post dominators from the program's control flow graph.</p>
+<p>Divergence costs performance, because inactive threads take ways without working: <strong>SIMD efficiency</strong> in the statistics is the average fraction of active threads. In the <em>GPU: divergence</em> example, even and odd threads split in every warp; with the condition i &lt; 16, each whole warp takes the same path.</p>
+<h3>Coalescing</h3>
+<p>In a load or store, the GPU merges the active threads' addresses into memory <strong>transactions</strong> the size of a line (32 bytes by default). Neighboring threads reading neighboring words make one transaction per warp; scattered accesses make one per thread. The LSU sends one transaction per cycle. The coalescing panel shows each thread's address in the last access, colored by line. See the <em>GPU: coalescing</em> example.</p>
+<h3>The diagram</h3>
+<dl>
+    <dt>Scheduler and units</dt><dd>The warp and instruction issued in the cycle, and the instructions taking each unit.</dd>
+    <dt>Warps</dt><dd>For each warp: the next instruction, the active thread mask, the status (ready, issued, waiting for a register, a unit, a branch or the barrier, finished) and the SIMT stack.</dd>
+    <dt>Thread registers</dt><dd>One column per thread, grouped by warp, with the registers used by the kernel; writes in the step are highlighted.</dd>
+</dl>
+<p>In the timeline, each row is an instruction of one warp (the name starts with the warp, for example <code>w2:</code>), and the exercise asks for the issue and completion cycles.</p>`,
+        },
+        {
             id: 'tpu',
             title: 'The TPU',
             html: `
@@ -201,7 +235,11 @@ export default {
             html: `
 <dl>
     <dt>Model</dt>
-    <dd>Vector processor or TPU. The fields change with the model; scalar latencies, branch bubbles, frequency and cycle limit are shared.</dd>
+    <dd>Vector processor, GPU or TPU. The fields change with the model; scalar latencies, branch bubbles, frequency and cycle limit are shared.</dd>
+    <dt>GPU: warps, threads per warp, ways per unit and scheduler</dt>
+    <dd>How many warps the SM runs and how many threads each has, how many threads each unit processes per cycle and the scheduler policy. See <a href="#h-gpu">The GPU</a>.</dd>
+    <dt>GPU: memory latency and transaction size</dt>
+    <dd>Cycles of a memory transaction and the line size used for coalescing.</dd>
     <dt>TPU: array size, buffer and accumulator rows, tiles in the weight queue</dt>
     <dd>The size N of the systolic array (2 to 16), how many rows the Unified Buffer and the accumulators have and how many weight tiles fit in the queue. See <a href="#h-tpu">The TPU</a>.</dd>
     <dt>TPU: memory and activation latencies</dt>
@@ -252,6 +290,8 @@ export default {
     <tr><td>Moves</td><td><code>vmv.v.v</code>, <code>vmv.v.x</code>, <code>vmv.v.i</code>, <code>vfmv.v.f</code>, <code>vmv.x.s</code>, <code>vmv.s.x</code>, <code>vfmv.f.s</code>, <code>vfmv.s.f</code>, <code>vmerge</code>, <code>vfmerge</code>, <code>vid.v</code></td></tr>
     <tr><td>Pseudoinstructions</td><td><code>vneg.v</code>, <code>vnot.v</code>, <code>vfneg.v</code>, <code>vfabs.v</code>, <code>vmmv.m</code>, <code>vmnot.m</code>, <code>vmclr.m</code>, <code>vmset.m</code>, <code>vmsgt.vv</code>, <code>vmsge.vv</code>, <code>vmfgt.vv</code>, <code>vmfge.vv</code></td></tr>
 </table>
+<h3>GPU</h3>
+<p><code>gpu.tid</code>, <code>gpu.ntid</code>, <code>gpu.wid</code>, <code>gpu.lane</code> and <code>gpu.bar</code>, described in <a href="#h-gpu">The GPU</a>, only in the GPU model.</p>
 <h3>TPU</h3>
 <p><code>tpu.rdhost</code>, <code>tpu.rdw</code>, <code>tpu.matmul</code>, <code>tpu.matmul.acc</code>, <code>tpu.act</code> and <code>tpu.wrhost</code>, described in <a href="#h-tpu">The TPU</a>. They can only be used in the TPU model, and vector instructions only in the vector processor.</p>
 <p>Operand order follows the specification: <code>vadd.vv vd, vs2, vs1</code> computes vs2 + vs1, and <code>vfmacc.vf vd, rs1, vs2</code> computes vd + rs1 × vs2. The address of a vector access is written in parentheses, without an offset: <code>vle32.v v1, (a0)</code>. The optional mask comes last: <code>vadd.vv v3, v1, v2, v0.t</code>.</p>`,
@@ -284,6 +324,8 @@ export default {
     <dd>For each unit, the fraction of available slots (cycles × lanes) in which an element entered.</dd>
     <dt>Stalls</dt>
     <dd>Cycles in which issue stalled, by reason, and bubbles caused by taken branches.</dd>
+    <dt>GPU</dt>
+    <dd>Warp and per thread instructions, warp instructions per cycle, SIMD efficiency (average fraction of active threads), memory accesses, transactions and transactions per access (coalescing), divergent branches, unit occupancy and cycles without issue, by reason.</dd>
     <dt>TPU</dt>
     <dd>Multiply accumulates (MAC) done by the array, MAC per cycle, array usage (MAC divided by cycles × N², the average fraction of the array that worked) and the occupancy of each unit.</dd>
     <dt>Execution time</dt>
@@ -319,6 +361,7 @@ export default {
     <li>Issue stops at the first instruction that cannot start; there are no instruction queues for the vector units.</li>
     <li>There is no branch prediction: taken branches cost a fixed number of bubbles.</li>
     <li>There is no limit on vector register file ports.</li>
+    <li>GPU: a single SM, without shared memory or caches; memory serves one transaction per cycle with a fixed latency; divergent indirect jumps are not accepted; the final state is checked against running the threads one after the other, which holds for race free programs.</li>
     <li>TPU: 32 bit integers along the whole path (TPU v1 uses 8 bits for inputs and weights), a single activation per instruction (ReLU or none) and weights read from the same memory as the data.</li>
     <li>Values are computed when the instruction reaches issue, in program order; the displayed state changes in the cycles in which each element is written. The final state is checked against a functional reference simulator.</li>
 </ul>`,

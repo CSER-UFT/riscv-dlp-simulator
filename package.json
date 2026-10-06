@@ -1,7 +1,7 @@
 {
   "name": "riscv-dlp-simulator",
   "private": true,
-  "description": "Simulador didático de paralelismo em nível de dados com RISC-V: processador vetorial (extensão V)",
+  "description": "Simulador didático de paralelismo em nível de dados com RISC-V: processador vetorial, GPU e TPU",
   "repository": "github:CSER-UFT/riscv-dlp-simulator",
   "license": "GPL-3.0",
   "type": "module",

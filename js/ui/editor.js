@@ -120,7 +120,7 @@ export class Editor {
         if (ex.config) {
             const cur = this.readConfig();
             const merged = { ...cur, ...ex.config };
-            for (const k of ['vector', 'tpu']) if (ex.config[k]) merged[k] = { ...cur[k], ...ex.config[k] };
+            for (const k of ['vector', 'tpu', 'gpu']) if (ex.config[k]) merged[k] = { ...cur[k], ...ex.config[k] };
             this.setConfig(merged);
         }
         this.showErrors([]);
@@ -201,13 +201,19 @@ export class Editor {
                 ${num('lanes', c.vector.lanes, 1, 64, t('ed.lanes'), 'vec-only')}
                 ${check('chaining', c.vector.chaining, t('ed.chaining'), 'vec-only')}
                 ${num('stridedRate', c.vector.stridedRate, 1, 64, t('ed.stridedRate'), 'vec-only')}
+                ${num('gpuWarps', c.gpu.warps, 1, 16, t('ed.gpuWarps'), 'gpu-only')}
+                ${num('gpuWarpSize', c.gpu.warpSize, 1, 32, t('ed.gpuWarpSize'), 'gpu-only')}
+                ${num('gpuLanes', c.gpu.lanes, 1, 32, t('ed.gpuLanes'), 'gpu-only')}
+                <label class="field gpu-only">${t('ed.gpuScheduler')}<select name="gpuScheduler">${opt([['rr', t('ui.gpu.policy.rr')], ['gto', t('ui.gpu.policy.gto')]], c.gpu.scheduler)}</select></label>
+                ${num('gpuMem', c.gpu.memLatency, 1, 400, t('ed.gpuMem'), 'gpu-only')}
+                <label class="field gpu-only">${t('ed.gpuLine')}<select name="gpuLine">${opt([4, 8, 16, 32, 64, 128].map((b) => [b, `${b} B`]), c.gpu.lineBytes)}</select></label>
                 ${num('tpuN', c.tpu.n, 2, 16, t('ed.tpuN'), 'tpu-only')}
                 ${num('tpuUb', c.tpu.ubRows, 1, 256, t('ed.tpuUb'), 'tpu-only')}
                 ${num('tpuAcc', c.tpu.accRows, 1, 256, t('ed.tpuAcc'), 'tpu-only')}
                 ${num('tpuFifo', c.tpu.fifoDepth, 1, 8, t('ed.tpuFifo'), 'tpu-only')}
                 ${num('tpuMem', c.tpu.memLatency, 1, 100, t('ed.tpuMem'), 'tpu-only')}
                 ${num('tpuAct', c.tpu.actLatency, 1, 20, t('ed.tpuAct'), 'tpu-only')}
-                ${num('branchPenalty', c.branchPenalty, 0, 20, t('ed.branchPenalty'))}
+                ${num('branchPenalty', c.branchPenalty, 0, 20, t('ed.branchPenalty'), 'not-gpu')}
             </fieldset>
             <fieldset class="vec-only"><legend>${t('ed.units')}</legend>
                 <table class="groups"><tr><th>${t('ed.unit')}</th><th>${t('ed.classes')}</th><th>${t('ed.pipelined')}</th><th></th></tr>${units}</table>
@@ -238,6 +244,8 @@ export class Editor {
         const mode = this.configEl.querySelector('select[name="mode"]').value;
         for (const el of this.configEl.querySelectorAll('.vec-only')) el.classList.toggle('hidden', mode !== 'vector');
         for (const el of this.configEl.querySelectorAll('.tpu-only')) el.classList.toggle('hidden', mode !== 'tpu');
+        for (const el of this.configEl.querySelectorAll('.gpu-only')) el.classList.toggle('hidden', mode !== 'gpu');
+        for (const el of this.configEl.querySelectorAll('.not-gpu')) el.classList.toggle('hidden', mode === 'gpu');
     }
 
     unitRow(u) {
@@ -275,6 +283,10 @@ export class Editor {
                     pipelined: row.querySelector('[name="u-pipelined"]').checked,
                     classes: [...row.querySelectorAll('.classes input:checked')].map((i) => i.value),
                 })),
+            },
+            gpu: {
+                warps: n('gpuWarps'), warpSize: n('gpuWarpSize'), lanes: n('gpuLanes'), scheduler: get('gpuScheduler').value,
+                memLatency: n('gpuMem'), lineBytes: n('gpuLine'),
             },
             tpu: {
                 n: n('tpuN'), ubRows: n('tpuUb'), accRows: n('tpuAcc'), fifoDepth: n('tpuFifo'),

@@ -115,6 +115,7 @@ function uniqueName(base) {
 /** Nome curto do modelo e da configuração principal, para os títulos das abas. */
 function shortName(sim) {
     if (sim.model === 'tpu') return t('ui.shortNameTpu', { model: t('mode.short.tpu'), n: sim.config.tpu.n });
+    if (sim.model === 'gpu') return t('ui.shortNameGpu', { model: t('mode.short.gpu'), w: sim.config.gpu.warps, s: sim.config.gpu.warpSize });
     return t('ui.shortName', { model: t(`mode.short.${sim.model}`), lanes: sim.config.vector.lanes });
 }
 

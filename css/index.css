@@ -1936,3 +1936,129 @@ code.tagged {
     background: var(--focus-soft);
     font-weight: 600;
 }
+
+/* GPU ----------------------------------------------------------------------------------------------------- */
+
+.panel.gunits .gunit {
+    border-top: 1px solid var(--line);
+    padding: 6px 0;
+}
+
+.panel.gunits .gunit.focus {
+    outline: 2px solid var(--focus);
+    border-radius: 4px;
+}
+
+.panel table.warps td,
+.panel table.warps th {
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.panel table.warps tr td:first-of-type,
+.panel table.warps th.wid {
+    border-left: 4px solid var(--tag);
+}
+
+.panel table.warps tr.done td {
+    opacity: 0.5;
+}
+
+.panel table.warps tr.focus td {
+    background: var(--focus-soft);
+}
+
+.panel table.mask {
+    border-collapse: separate;
+    border-spacing: 2px;
+}
+
+.panel table.mask td {
+    width: 16px;
+    padding: 1px 0;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    border: 0;
+    border-radius: 2px;
+}
+
+.panel table.mask td.on {
+    background: color-mix(in srgb, var(--tag) calc(var(--tag-bg) + 12%), var(--panel));
+    font-weight: 600;
+}
+
+.panel table.mask td.off {
+    background: var(--panel-2);
+    color: var(--faint);
+}
+
+.panel td.wstate.ready,
+.panel td.wstate.issued {
+    color: var(--ok);
+}
+
+.panel td.wstate.dep,
+.panel td.wstate.unit,
+.panel td.wstate.branch,
+.panel td.wstate.bar {
+    color: var(--warn);
+}
+
+.panel td.wstack {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+}
+
+.panel td.wstack div.stop {
+    font-weight: 600;
+}
+
+.panel table.coal td {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    text-align: center;
+    padding: 2px 4px;
+    background: color-mix(in srgb, var(--tag) calc(var(--tag-bg) + 6%), var(--panel));
+}
+
+.panel table.coal td.off {
+    background: var(--panel-2);
+    color: var(--faint);
+}
+
+.panel table.coal td .sub {
+    display: block;
+    margin: 0;
+}
+
+.panel.threads {
+    align-self: flex-start;
+    max-width: 100%;
+}
+
+.panel table.tregs th {
+    white-space: nowrap;
+}
+
+.panel table.tregs tr:first-child th {
+    border-bottom: 3px solid var(--tag);
+    text-align: center;
+    min-width: 34px;
+}
+
+.panel table.tregs td {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    text-align: right;
+    padding: 2px 4px;
+}
+
+.panel table.tregs .wstart {
+    border-left: 2px solid var(--line-strong);
+}
+
+.panel table.tregs td.new {
+    background: var(--focus-soft);
+    font-weight: 600;
+}

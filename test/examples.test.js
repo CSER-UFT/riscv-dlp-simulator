@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EXAMPLES } from '../js/examples.js';
-import { asm, CONFIGS, TPU_CONFIGS, assertMatchesReference } from './helpers.js';
+import { asm, CONFIGS, TPU_CONFIGS, GPU_CONFIGS, assertMatchesReference } from './helpers.js';
 
 test('todos os exemplos montam, terminam e coincidem com a referência em todas as configurações', () => {
     for (const ex of EXAMPLES) {
         const program = asm(ex.code);
-        const configs = ex.config?.mode === 'tpu' ? TPU_CONFIGS : CONFIGS;
+        const configs = { tpu: TPU_CONFIGS, gpu: GPU_CONFIGS }[ex.config?.mode] ?? CONFIGS;
         for (const [name, config] of Object.entries(configs))
             assertMatchesReference(program, { ...config, mode: ex.config?.mode ?? 'vector', trace: false }, `${ex.id} / ${name}`);
     }
@@ -36,4 +36,15 @@ test('os exemplos produzem os resultados esperados', () => {
     // C = A0 x B0 + A1 x B1, conferido em Python
     assert.deepEqual(mat(results['tpu-ktile'], 'C', 16), [5, 6, 7, 8, 0, 2, 0, 2, 1, 2, 1, 2, 4, 0, 3, 0]);
     assert.equal(results['tpu-batch'].stats.macs, 12 * 16);
+    const f32g = (sim, label, i) => {
+        const p = sim.program.dataLabels.find((l) => l.name === label).addr + BigInt(4 * i);
+        const v = new DataView(new ArrayBuffer(4));
+        v.setUint32(0, Number([0, 1, 2, 3].reduce((acc, k) => acc | (BigInt(sim.final.mem.get(p + BigInt(k)) ?? 0) << BigInt(8 * k)), 0n)));
+        return v.getFloat32(0);
+    };
+    assert.deepEqual(Array.from({ length: 32 }, (_, i) => f32g(results['gpu-saxpy'], 'y', i)), Array.from({ length: 32 }, (_, i) => 12 * (i + 1)));
+    assert.deepEqual(mat(results['gpu-divergence'], 'v', 32), Array.from({ length: 32 }, (_, i) => (i % 2 ? i * i : i + 100)));
+    assert.equal(i32(results['gpu-reduction'], 'v', 0), 528);
+    assert.equal(results['gpu-coalescing'].stats.transactions, 48);
+    assert.equal(results['gpu-divergence'].stats.divergent, 4);
 });

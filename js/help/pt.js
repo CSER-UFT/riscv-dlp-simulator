@@ -4,7 +4,7 @@
  */
 export default {
     title: 'Simulador de Paralelismo de Dados RISC-V',
-    lead: 'Simulador didático de arquiteturas que exploram o paralelismo em nível de dados, começando pelo processador vetorial da extensão V do RISC-V. Desenvolvido para o curso de <strong>Ciência da Computação</strong> da <strong>Universidade Federal do Tocantins</strong>.',
+    lead: 'Simulador didático de arquiteturas que exploram o paralelismo em nível de dados: o processador vetorial da extensão V do RISC-V, uma GPU (SIMT) e uma TPU (array sistólico). Desenvolvido para o curso de <strong>Ciência da Computação</strong> da <strong>Universidade Federal do Tocantins</strong>.',
     searchPlaceholder: 'Buscar na ajuda',
     noResults: 'Nenhuma seção contém esse termo.',
     tocTitle: 'Conteúdo',
@@ -76,7 +76,7 @@ export default {
     <dd>Milhares de threads executadas em grupos (warps) que compartilham a mesma instrução (SIMT), com troca rápida entre grupos para esconder a latência da memória.</dd>
 </dl>
 <p>As <strong>arquiteturas de domínio específico</strong>, como a TPU do Google, levam a ideia mais longe: um array sistólico de multiplicadores dedicado à multiplicação de matrizes.</p>
-<p class="tip">O simulador tem o processador vetorial e a TPU; o modelo de GPU está planejado.</p>`,
+<p class="tip">O simulador tem os três modelos: o processador vetorial, a GPU e a TPU.</p>`,
         },
         {
             id: 'rvv',
@@ -163,6 +163,40 @@ export default {
 <p>Para observar a latência de partida, compare uma execução com vl pequeno (o tempo é dominado pela latência) e outra com vl grande (dominado por vl ÷ lanes).</p>`,
         },
         {
+            id: 'gpu',
+            title: 'A GPU',
+            html: `
+<p>Uma GPU executa o mesmo programa (o <strong>kernel</strong>) em milhares de threads. As threads são agrupadas em <strong>warps</strong> que compartilham a busca e a decodificação: a cada instrução emitida, todas as threads ativas do warp a executam, cada uma com os seus registradores. É o modelo <strong>SIMT</strong> (<em>single instruction, multiple threads</em>). Este simulador modela um único multiprocessador (SM) com um número configurável de warps (4 de 8 threads, por padrão), no estilo de Hennessy e Patterson e do simulador GPGPU-Sim, em escala reduzida para caber na tela.</p>
+<h3>O kernel</h3>
+<p>O kernel é um programa RISC-V comum, executado por todas as threads, com cinco instruções a mais:</p>
+<table>
+    <tr><th>Instrução</th><th>Efeito</th></tr>
+    <tr><td><code>gpu.tid rd</code></td><td>índice global da thread: warp × tamanho do warp + posição no warp</td></tr>
+    <tr><td><code>gpu.ntid rd</code></td><td>número total de threads</td></tr>
+    <tr><td><code>gpu.wid rd</code></td><td>índice do warp</td></tr>
+    <tr><td><code>gpu.lane rd</code></td><td>posição da thread no warp</td></tr>
+    <tr><td><code>gpu.bar</code></td><td>barreira: o warp espera até todos os warps que ainda executam chegarem</td></tr>
+</table>
+<p>Cada thread tem os seus registradores (com uma pilha própria em <code>sp</code>), e a memória é compartilhada. Uma thread termina em <code>ecall</code> ou ao passar do fim do código. O padrão usado nos exemplos é o laço com passo igual ao número de threads: a thread i processa os elementos i, i + ntid, i + 2 × ntid..., o que funciona com qualquer número de warps.</p>
+<h3>Escalonamento e ocultação de latência</h3>
+<p>A cada ciclo, o <strong>escalonador</strong> escolhe um warp pronto e emite a próxima instrução dele. Um warp não está pronto se terminou, está em uma barreira, espera a resolução de um desvio, lê ou escreve um registrador com escrita pendente (o <em>scoreboard</em> de cada warp) ou precisa de uma unidade ocupada. O rodízio (<em>round robin</em>) começa pelo warp seguinte ao último emitido; o guloso (<em>GTO</em>, <em>greedy then oldest</em>) repete o mesmo warp enquanto ele estiver pronto e, senão, escolhe o de menor índice.</p>
+<p>Um load leva a latência da memória (20 ciclos, por padrão). Com um único warp, o SM fica parado esperando; com vários, o escalonador emite instruções de outros warps enquanto o primeiro espera. É assim que as GPUs <strong>escondem a latência</strong>: em vez de caches grandes e execução fora de ordem, muitas threads prontas para trocar. No exemplo <em>GPU: SAXPY</em>, compare 1 warp com 4 warps.</p>
+<h3>Unidades</h3>
+<p>A ALU executa inteiros, desvios e as instruções da GPU; a FPU, ponto flutuante, multiplicação e divisão inteira; a LSU, loads e stores. Cada unidade tem um número de vias: com 8 threads por warp e 4 vias, uma instrução ocupa a unidade por 2 ciclos. Uma instrução com latência L emitida no ciclo c, que ocupa a unidade por g ciclos, tem o resultado no fim do ciclo c + g + L menos 2.</p>
+<h3>Divergência</h3>
+<p>Quando as threads de um warp seguem caminhos diferentes em um desvio, o warp executa os dois caminhos em sequência, cada um só com as threads daquele caminho (a <strong>máscara</strong> de threads ativas), e as threads voltam a se juntar no <strong>pós dominador imediato</strong> do desvio: a primeira instrução por onde todos os caminhos passam. A <strong>pilha SIMT</strong> guarda os caminhos pendentes: o topo é o caminho em execução, com o seu ponto de reconvergência. O simulador calcula os pós dominadores a partir do grafo de fluxo do programa.</p>
+<p>Divergência custa desempenho, porque as threads inativas ocupam vias sem trabalhar: a <strong>eficiência SIMD</strong> nas estatísticas é a fração média de threads ativas. No exemplo <em>GPU: divergência</em>, threads pares e ímpares se separam em todos os warps; com a condição i &lt; 16, cada warp inteiro segue o mesmo caminho.</p>
+<h3>Coalescência</h3>
+<p>Em um load ou store, a GPU junta os endereços das threads ativas em <strong>transações</strong> de memória do tamanho de uma linha (32 bytes, por padrão). Threads vizinhas lendo palavras vizinhas geram uma transação por warp; acessos espalhados geram uma por thread. A LSU envia uma transação por ciclo. O painel de coalescência mostra o endereço de cada thread no último acesso, colorido pela linha. Veja o exemplo <em>GPU: coalescência</em>.</p>
+<h3>O diagrama</h3>
+<dl>
+    <dt>Escalonador e unidades</dt><dd>O warp e a instrução emitidos no ciclo, e as instruções ocupando cada unidade.</dd>
+    <dt>Warps</dt><dd>Para cada warp: a próxima instrução, a máscara de threads ativas, a situação (pronto, emitiu, esperando um registrador, uma unidade, um desvio ou a barreira, terminou) e a pilha SIMT.</dd>
+    <dt>Registradores das threads</dt><dd>Uma coluna por thread, agrupadas por warp, com os registradores usados pelo kernel; as escritas do passo ficam destacadas.</dd>
+</dl>
+<p>Na linha do tempo, cada linha é uma instrução de um warp (o nome começa com o warp, por exemplo <code>w2:</code>), e o exercício pede o ciclo de emissão e o de conclusão.</p>`,
+        },
+        {
             id: 'tpu',
             title: 'A TPU',
             html: `
@@ -202,7 +236,11 @@ export default {
             html: `
 <dl>
     <dt>Modelo</dt>
-    <dd>Processador vetorial ou TPU. Os campos mudam conforme o modelo; as latências escalares, as bolhas por desvio, a frequência e o limite de ciclos são comuns.</dd>
+    <dd>Processador vetorial, GPU ou TPU. Os campos mudam conforme o modelo; as latências escalares, as bolhas por desvio, a frequência e o limite de ciclos são comuns.</dd>
+    <dt>GPU: warps, threads por warp, vias por unidade e escalonador</dt>
+    <dd>Quantos warps o SM executa e quantas threads cada um tem, quantas threads cada unidade processa por ciclo e a política do escalonador. Veja <a href="#h-gpu">A GPU</a>.</dd>
+    <dt>GPU: latência da memória e tamanho da transação</dt>
+    <dd>Ciclos de uma transação de memória e o tamanho da linha usado na coalescência.</dd>
     <dt>TPU: dimensão do array, linhas do buffer e dos acumuladores, blocos na fila de pesos</dt>
     <dd>O tamanho N do array sistólico (de 2 a 16), quantas linhas têm o Unified Buffer e os acumuladores e quantos blocos de pesos cabem na fila. Veja <a href="#h-tpu">A TPU</a>.</dd>
     <dt>TPU: latências da memória e da ativação</dt>
@@ -253,6 +291,8 @@ export default {
     <tr><td>Movimentação</td><td><code>vmv.v.v</code>, <code>vmv.v.x</code>, <code>vmv.v.i</code>, <code>vfmv.v.f</code>, <code>vmv.x.s</code>, <code>vmv.s.x</code>, <code>vfmv.f.s</code>, <code>vfmv.s.f</code>, <code>vmerge</code>, <code>vfmerge</code>, <code>vid.v</code></td></tr>
     <tr><td>Pseudoinstruções</td><td><code>vneg.v</code>, <code>vnot.v</code>, <code>vfneg.v</code>, <code>vfabs.v</code>, <code>vmmv.m</code>, <code>vmnot.m</code>, <code>vmclr.m</code>, <code>vmset.m</code>, <code>vmsgt.vv</code>, <code>vmsge.vv</code>, <code>vmfgt.vv</code>, <code>vmfge.vv</code></td></tr>
 </table>
+<h3>GPU</h3>
+<p><code>gpu.tid</code>, <code>gpu.ntid</code>, <code>gpu.wid</code>, <code>gpu.lane</code> e <code>gpu.bar</code>, descritas em <a href="#h-gpu">A GPU</a>, só no modelo GPU.</p>
 <h3>TPU</h3>
 <p><code>tpu.rdhost</code>, <code>tpu.rdw</code>, <code>tpu.matmul</code>, <code>tpu.matmul.acc</code>, <code>tpu.act</code> e <code>tpu.wrhost</code>, descritas em <a href="#h-tpu">A TPU</a>. Só podem ser usadas no modelo TPU, e as instruções vetoriais só no processador vetorial.</p>
 <p>A ordem dos operandos segue a especificação: <code>vadd.vv vd, vs2, vs1</code> calcula vs2 + vs1, e <code>vfmacc.vf vd, rs1, vs2</code> calcula vd + rs1 × vs2. O endereço de um acesso vetorial é escrito entre parênteses, sem deslocamento: <code>vle32.v v1, (a0)</code>. A máscara opcional vem por último: <code>vadd.vv v3, v1, v2, v0.t</code>.</p>`,
@@ -285,6 +325,8 @@ export default {
     <dd>Para cada unidade, a fração das posições disponíveis (ciclos × lanes) em que entrou um elemento.</dd>
     <dt>Paradas</dt>
     <dd>Ciclos em que a emissão ficou parada, por motivo, e bolhas causadas por desvios tomados.</dd>
+    <dt>GPU</dt>
+    <dd>Instruções de warp e por thread, instruções de warp por ciclo, eficiência SIMD (fração média de threads ativas), acessos à memória, transações e transações por acesso (coalescência), desvios divergentes, ocupação das unidades e ciclos sem emissão, por motivo.</dd>
     <dt>TPU</dt>
     <dd>Multiplicações e somas (MAC) feitas pelo array, MAC por ciclo, uso do array (MAC dividido por ciclos × N², a fração do array que trabalhou em média) e a ocupação de cada unidade.</dd>
     <dt>Tempo de execução</dt>
@@ -320,6 +362,7 @@ export default {
     <li>A emissão para na primeira instrução que não pode começar; não há filas de instruções para as unidades vetoriais.</li>
     <li>Não há previsão de desvios: desvios tomados custam um número fixo de bolhas.</li>
     <li>Não há limite de portas no banco de registradores vetoriais.</li>
+    <li>GPU: um único SM, sem memória compartilhada (<em>shared memory</em>) nem caches; a memória atende uma transação por ciclo com latência fixa; saltos indiretos divergentes não são aceitos; o estado final é verificado contra a execução das threads em sequência, o que vale para programas sem condição de corrida.</li>
     <li>TPU: inteiros de 32 bits em todo o caminho (a TPU v1 usa 8 bits nas entradas e nos pesos), uma única ativação por instrução (ReLU ou nenhuma) e pesos lidos da mesma memória que os dados.</li>
     <li>Os valores são calculados quando a instrução chega à emissão, em ordem de programa; o estado exibido muda nos ciclos em que cada elemento é escrito. O estado final é verificado contra um simulador funcional de referência.</li>
 </ul>`,

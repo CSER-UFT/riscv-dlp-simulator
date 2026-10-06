@@ -4,10 +4,11 @@
  */
 import { VECTOR_CLASSES } from '../riscv/vector.js';
 import { DEFAULT_TPU } from '../riscv/tpu.js';
+import { DEFAULT_GPU, SCHEDULERS } from '../riscv/gpu.js';
 import { t } from '../i18n/index.js';
 
 /** Modelos, na ordem de exibição. */
-export const MODE_IDS = ['vector', 'tpu'];
+export const MODE_IDS = ['vector', 'gpu', 'tpu'];
 
 /** Classes escalares com latência configurável (desvios, saltos e vsetvli usam a da ALU). */
 export const SCALAR_LATENCY_IDS = ['alu', 'mul', 'div', 'load', 'store', 'fadd', 'fmul', 'fdiv'];
@@ -38,6 +39,7 @@ export const DEFAULT_CONFIG = {
         ],
     },
     tpu: { ...DEFAULT_TPU },
+    gpu: { ...DEFAULT_GPU },
     latency: {
         alu: 1, mul: 3, div: 10, load: 2, store: 1, fadd: 3, fmul: 4, fdiv: 10,
         vload: 6, vstore: 6, valu: 2, vmul: 5, vdiv: 16, vfadd: 4, vfmul: 5, vfdiv: 16,
@@ -50,6 +52,19 @@ const intIn = (v, lo, hi, def) => {
 };
 const bool = (v, def) => (v === undefined ? def : Boolean(v));
 const isPow2 = (n) => n > 0 && (n & (n - 1)) === 0;
+
+function normalizeGpu(pg) {
+    const d = DEFAULT_GPU;
+    const warpSize = intIn(pg.warpSize, 1, 32, d.warpSize);
+    return {
+        warps: intIn(pg.warps, 1, 16, d.warps),
+        warpSize,
+        lanes: Math.min(warpSize, intIn(pg.lanes, 1, 32, d.lanes)),
+        scheduler: SCHEDULERS.includes(pg.scheduler) ? pg.scheduler : d.scheduler,
+        memLatency: intIn(pg.memLatency, 1, 400, d.memLatency),
+        lineBytes: [4, 8, 16, 32, 64, 128].includes(Number(pg.lineBytes)) ? Number(pg.lineBytes) : d.lineBytes,
+    };
+}
 
 function normalizeTpu(pt) {
     const d = DEFAULT_TPU;
@@ -87,6 +102,7 @@ export function normalizeConfig(partial = {}) {
             units: [],
         },
         tpu: normalizeTpu(partial.tpu ?? {}),
+        gpu: normalizeGpu(partial.gpu ?? {}),
         latency: {},
     };
     if (!isPow2(c.vector.vlen)) errors.push(t('config.vlenPow2'));
@@ -115,7 +131,8 @@ export function normalizeConfig(partial = {}) {
 export function checkProgram(program, config) {
     const errors = [];
     // Instruções de outro modelo: vetoriais só no processador vetorial, da TPU só na TPU.
-    const foreign = program.instructions.find((i) => (config.mode === 'vector' && i.def.tpu) || (config.mode !== 'vector' && i.def.vector));
+    const owner = (d) => (d.vector ? 'vector' : d.tpu ? 'tpu' : d.gpu ? 'gpu' : null);
+    const foreign = program.instructions.find((i) => owner(i.def) && owner(i.def) !== config.mode);
     if (foreign) errors.push(t('config.wrongModel', { inst: foreign.text, line: foreign.line, model: t(`mode.${config.mode}`) }));
     if (config.mode !== 'vector') return errors;
     const served = new Set(config.vector.units.flatMap((u) => u.classes));

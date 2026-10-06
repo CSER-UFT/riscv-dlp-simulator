@@ -34,6 +34,12 @@ test('toda chave usada no código existe no dicionário', async () => {
     for (const cls of ['alu', 'mul', 'div', 'branch', 'jump', 'load', 'store', 'fadd', 'fmul', 'fdiv', 'system', 'vset', 'vload', 'vstore', 'valu', 'vmul', 'vdiv', 'vfadd', 'vfmul', 'vfdiv']) keys.add(`class.${cls}`);
     for (const r of ['raw', 'war', 'waw', 'struct', 'scalar', 'mem', 'front']) keys.add(`ui.vec.why.${r}`);
     for (const l of ['Issue', 'Exec', 'Lat', 'Stall']) keys.add(`tl.${l}`);
+    for (const st of ['done', 'bar', 'branch', 'busy', 'dep', 'unit', 'ready', 'issued']) keys.add(`ui.gpu.state.${st}`);
+    for (const p of ['rr', 'gto']) keys.add(`ui.gpu.policy.${p}`);
+    for (const u of ['ALU', 'FPU', 'LSU']) keys.add(`ui.gpu.unit.${u}`);
+    for (const u of ['DMA', 'WDMA', 'MXU', 'ACT']) keys.add(`ui.tpu.unit.${u}`);
+    for (const f of ['reading', 'ready', 'shifting']) keys.add(`ui.tpu.fifo.${f}`);
+    for (const m of ['vector', 'tpu', 'gpu']) { keys.add(`mode.${m}`); keys.add(`mode.short.${m}`); }
     const missing = [...keys].filter((k) => !(k in pt) && !/^(class|classShort)\.$/.test(k));
     assert.deepEqual(missing, []);
 });

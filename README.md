@@ -2,7 +2,7 @@
 
 **Acesse:** [cser-uft.github.io/riscv-dlp-simulator](https://cser-uft.github.io/riscv-dlp-simulator/)
 
-Simulador didático de arquiteturas que exploram o paralelismo em nível de dados (DLP, *data level parallelism*), desenvolvido para o curso de **Ciência da Computação** da **Universidade Federal do Tocantins**. É o projeto irmão do [Simulador de Processadores RISC-V](https://github.com/CSER-UFT/riscv-simulator), do qual reaproveita o montador, a interface e as ferramentas para aula.
+Simulador didático de arquiteturas que exploram o paralelismo em nível de dados (DLP, *data level parallelism*): processador vetorial, GPU e TPU, desenvolvido para o curso de **Ciência da Computação** da **Universidade Federal do Tocantins**. É o projeto irmão do [Simulador de Processadores RISC-V](https://github.com/CSER-UFT/riscv-simulator), do qual reaproveita o montador, a interface e as ferramentas para aula.
 
 O simulador roda inteiramente no navegador (HTML e JavaScript, sem dependências nem etapa de compilação) e pode ser publicado diretamente no GitHub Pages. A interface está em português e em inglês, com tema claro e tema escuro.
 
@@ -10,7 +10,7 @@ O simulador roda inteiramente no navegador (HTML e JavaScript, sem dependências
 
 * **Processador vetorial**: um núcleo escalar em ordem acoplado a uma unidade vetorial com lanes, no estilo do RV64V de Hennessy e Patterson, executando a extensão V do RISC-V (RVV 1.0, LMUL = 1).
 * **TPU**: um núcleo RISC-V escalar comandando uma unidade de multiplicação de matrizes com array sistólico N × N (pesos parados), Unified Buffer, fila de pesos, acumuladores e ativação, no estilo da TPU v1 do Google.
-* **GPU** (SIMT, com warps, divergência e escalonamento): planejada.
+* **GPU**: um multiprocessador SIMT com warps, escalonador (rodízio ou GTO), scoreboard por warp, divergência com pilha SIMT e reconvergência no pós dominador imediato, barreira e coalescência dos acessos à memória.
 
 ## Processador vetorial
 
@@ -33,7 +33,15 @@ Simplificações: apenas LMUL = 1, com a largura dos acessos à memória igual a
 * Array sistólico com entradas defasadas e somas parciais descendo pelas colunas (latência 2N menos 1), buffer duplo de pesos e dependências verificadas linha a linha, o que permite sobrepor multiplicação, ativação e a camada seguinte.
 * Diagrama com a frente diagonal de cálculo atravessando o array, o peso, a entrada e a soma parcial de cada elemento, a fila de pesos, o Unified Buffer e os acumuladores; estatísticas de MAC por ciclo e uso do array.
 
-Exemplos: C = ReLU(A × B), lote de 12 linhas, lote pequeno limitado pelos pesos, K maior que o array (acumulação) e rede de duas camadas.
+## GPU
+
+* Kernel em RISC-V com `gpu.tid`, `gpu.ntid`, `gpu.wid`, `gpu.lane` e `gpu.bar`; cada thread com os seus registradores.
+* Número de warps, threads por warp, vias por unidade, escalonador, latência da memória e tamanho das transações configuráveis.
+* Diagrama com o warp emitido, a máscara de threads ativas e a pilha SIMT de cada warp, a ocupação das unidades, a coalescência do último acesso (endereço de cada thread colorido pela linha) e os registradores de todas as threads; estatísticas de eficiência SIMD, transações por acesso e ciclos sem emissão.
+
+Exemplos: SAXPY (ocultação de latência com mais warps), divergência, coalescência e redução em árvore com barreira.
+
+Exemplos da TPU: C = ReLU(A × B), lote de 12 linhas, lote pequeno limitado pelos pesos, K maior que o array (acumulação) e rede de duas camadas.
 
 ## Recursos para aula
 
@@ -59,11 +67,13 @@ Clique em **Nova simulação**, escolha um exemplo ou escreva o programa, ajuste
 js/riscv/isa.js          tabela declarativa das instruções escalares
 js/riscv/vector.js       instruções vetoriais e executor funcional (acessos por elemento)
 js/riscv/tpu.js          instruções da TPU e executor funcional (acessos por linha)
+js/riscv/gpu.js          instruções da GPU, pós dominadores e referência (threads em sequência)
 js/riscv/parser.js       montador: rótulos, pseudoinstruções, diretivas, sintaxe vetorial, erros por linha
 js/riscv/machine.js      estado inicial e simulador funcional de referência
 js/models/host.js        núcleo escalar comum aos modelos
 js/models/vector.js      modelo temporal do processador vetorial
 js/models/tpu.js         modelo temporal da TPU
+js/models/gpu.js         modelo temporal da GPU (SIMT)
 js/core/config.js        configuração padrão e validação
 js/core/recorder.js      passos, linha do tempo e instantâneos com compartilhamento estrutural
 js/i18n/                 textos da interface em português e inglês
@@ -81,7 +91,7 @@ Requer Node.js 20 ou mais recente, sem dependências.
 npm test
 ```
 
-A suíte verifica o montador, a semântica das instruções escalares e vetoriais, os dicionários de tradução, a ajuda, os exemplos e o comportamento temporal em programas com ciclos calculados à mão (encadeamento, conflitos estruturais, unidades sem pipeline, acessos com passo, reduções, WAR, WAW, dependência pela memória e desvios). Os testes principais geram programas aleatórios (escalares e vetoriais, ou escalares e da TPU) e, em várias configurações de hardware, compara o estado final com o do simulador funcional de referência e confere de forma independente, bit a bit, linha a linha e endereço a endereço, as regras de tempo de cada instrução. A quantidade de programas aleatórios pode ser alterada com a variável `RANDOM_PROGRAMS`.
+A suíte verifica o montador, a semântica das instruções escalares e vetoriais, os dicionários de tradução, a ajuda, os exemplos e o comportamento temporal em programas com ciclos calculados à mão (encadeamento, conflitos estruturais, unidades sem pipeline, acessos com passo, reduções, WAR, WAW, dependência pela memória e desvios). Os testes principais geram programas aleatórios (escalares e vetoriais, escalares e da TPU, ou kernels de GPU sem condição de corrida, com divergência, laços, barreiras e threads que terminam cedo) e, em várias configurações de hardware, compara o estado final com o do simulador funcional de referência e confere de forma independente, bit a bit, linha a linha e endereço a endereço, as regras de tempo de cada instrução. A quantidade de programas aleatórios pode ser alterada com a variável `RANDOM_PROGRAMS`.
 
 ## Execução local
 

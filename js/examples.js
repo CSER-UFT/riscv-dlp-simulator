@@ -426,4 +426,151 @@ Y:  .space 64
     tpu.wrhost (a3), 8, 4
 `,
     },
+    {
+        id: 'gpu-saxpy',
+        name: 'GPU: SAXPY',
+        nameEn: 'GPU: SAXPY',
+        config: { mode: 'gpu' },
+        code: `# SAXPY na GPU: cada thread calcula y[i] = a * x[i] + y[i] para i = tid, tid + ntid, ...
+# (laço com passo igual ao número de threads, que funciona com qualquer número de warps).
+# Compare 1 warp com 4 warps: com mais warps, o escalonador esconde a latência da memória.
+.data
+a:  .float 2.0
+n:  .word 32
+x:  .float 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+y:  .float 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300, 310, 320
+.text
+    gpu.tid  t0                 # i = índice da thread
+    gpu.ntid t1                 # passo = número de threads
+    lw      t2, n
+    la      t3, x
+    la      t4, y
+    la      t5, a
+    flw     fa0, 0(t5)
+laco:
+    bge     t0, t2, fim
+    slli    t6, t0, 2
+    add     a0, t3, t6
+    add     a1, t4, t6
+    flw     ft0, 0(a0)          # x[i]
+    flw     ft1, 0(a1)          # y[i]
+    fmadd.s ft1, fa0, ft0, ft1
+    fsw     ft1, 0(a1)
+    add     t0, t0, t1
+    j       laco
+fim:
+    ecall
+`,
+    },
+    {
+        id: 'gpu-divergence',
+        name: 'GPU: divergência',
+        nameEn: 'GPU: divergence',
+        config: { mode: 'gpu' },
+        code: `# Threads pares e ímpares seguem caminhos diferentes do if: o warp executa os dois caminhos em
+# sequência, cada um com metade das threads, e elas se juntam de novo em "junta".
+# Troque "andi t4, t0, 1" por "slti t4, t0, 16": cada warp inteiro segue o mesmo caminho.
+.data
+n:  .word 32
+v:  .space 128
+.text
+    gpu.tid  t0
+    gpu.ntid t1
+    lw      t2, n
+    la      t3, v
+laco:
+    bge     t0, t2, fim
+    andi    t4, t0, 1           # t4 = i ímpar?
+    beqz    t4, par
+    mul     t5, t0, t0          # ímpar: i * i
+    j       junta
+par:
+    addi    t5, t0, 100         # par: i + 100
+junta:
+    slli    t6, t0, 2
+    add     t6, t3, t6
+    sw      t5, 0(t6)
+    add     t0, t0, t1
+    j       laco
+fim:
+    ecall
+`,
+    },
+    {
+        id: 'gpu-coalescing',
+        name: 'GPU: coalescência',
+        nameEn: 'GPU: coalescing',
+        config: { mode: 'gpu' },
+        code: `# No primeiro laço, threads vizinhas leem palavras vizinhas: os acessos de um warp cabem em uma
+# transação. No segundo, cada thread lê com passo de 32 bytes: uma transação por thread.
+# Compare as transações por acesso nas estatísticas e o painel de coalescência.
+.data
+n:  .word 32
+    .align 5                    # x começa no início de uma linha de 32 bytes
+x:  .word 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255
+    .align 5
+y:  .space 128
+.text
+    gpu.tid  t0
+    gpu.ntid t1
+    lw      t2, n
+    la      t3, x
+    la      t4, y
+    mv      a2, t0
+unit:                           # y[i] = x[i]
+    bge     a2, t2, passo
+    slli    t5, a2, 2
+    add     a0, t3, t5
+    add     a1, t4, t5
+    lw      t6, 0(a0)
+    sw      t6, 0(a1)
+    add     a2, a2, t1
+    j       unit
+passo:
+    mv      a2, t0
+strided:                        # y[i] = x[8 * i]
+    bge     a2, t2, fim
+    slli    t5, a2, 5           # 8 * i * 4 bytes
+    add     a0, t3, t5
+    slli    t5, a2, 2
+    add     a1, t4, t5
+    lw      t6, 0(a0)
+    sw      t6, 0(a1)
+    add     a2, a2, t1
+    j       strided
+fim:
+    ecall
+`,
+    },
+    {
+        id: 'gpu-reduction',
+        name: 'GPU: redução com barreira',
+        nameEn: 'GPU: reduction with barrier',
+        config: { mode: 'gpu', gpu: { warps: 4, warpSize: 8 } },
+        code: `# Soma dos 32 elementos de v em árvore (feita para 32 threads: 4 warps de 8).
+# A cada passo, as threads i < s somam v[i + s] em v[i]; a barreira garante que o passo terminou
+# em todos os warps antes do seguinte. No fim, v[0] = 528.
+.data
+v:  .word 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+.text
+    gpu.tid  t0
+    la      t2, v
+    slli    t3, t0, 2
+    add     t3, t2, t3          # endereço de v[i]
+    li      t4, 16              # s
+passo:
+    bge     t0, t4, espera      # só as threads i < s trabalham
+    slli    t5, t4, 2
+    add     t5, t3, t5          # endereço de v[i + s]
+    lw      t6, 0(t5)
+    lw      a0, 0(t3)
+    add     a0, a0, t6
+    sw      a0, 0(t3)
+espera:
+    gpu.bar
+    srli    t4, t4, 1
+    bnez    t4, passo
+    ecall
+`,
+    },
 ];

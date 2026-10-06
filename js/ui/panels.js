@@ -99,7 +99,23 @@ export function statsRows(sim) {
         [t('stats.cycles'), s.cycles],
         [t('stats.instructions'), s.instructions],
     ];
-    if (sim.model === 'tpu') {
+    if (sim.model === 'gpu') {
+        const g = cfg.gpu;
+        rows.push([t('stats.threadInstructions'), s.threadInstructions]);
+        rows.push([t('stats.warpIpc'), fmtNum(s.ipc, 2)]);
+        rows.push([t('stats.simdEff'), pct(s.threadInstructions, s.instructions * g.warpSize)]);
+        rows.push([t('stats.memInstructions'), s.memInstructions]);
+        rows.push([t('stats.transactions'), s.transactions]);
+        rows.push([t('stats.txnPerAccess'), fmtNum(s.memInstructions ? s.transactions / s.memInstructions : 0, 2)]);
+        rows.push([t('stats.divergent'), `${s.divergent} / ${s.branches}`]);
+        ['ALU', 'FPU', 'LSU'].forEach((u, i) => rows.push([t('stats.unitBusy', { unit: u }), pct(s.unitBusy[i], s.cycles)]));
+        rows.push([t('stats.idle'), s.idle]);
+        const stall2 = (key, v) => { if (v > 0) rows.push([t(key), v]); };
+        stall2('stats.idleDep', s.waitDep);
+        stall2('stats.idleUnit', s.waitUnit);
+        stall2('stats.idleBranch', s.waitBranch);
+        stall2('stats.idleBar', s.waitBar);
+    } else if (sim.model === 'tpu') {
         const n = cfg.tpu.n;
         rows.push([t('stats.tpuInstructions'), s.tpuInstructions]);
         rows.push([t('stats.scalarInstructions'), s.scalarInstructions]);
