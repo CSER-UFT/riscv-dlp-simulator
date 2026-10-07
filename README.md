@@ -31,7 +31,7 @@ Simplificações: LMUL inteiro (sem frações), com a largura dos acessos à mem
 * Instruções `tpu.rdhost`, `tpu.rdw`, `tpu.matmul`, `tpu.matmul.acc`, `tpu.act` e `tpu.wrhost`, emitidas pelo núcleo escalar.
 * Dimensão do array, linhas do Unified Buffer e dos acumuladores, tamanho da fila de pesos, latências e tipo de dado (int32 ou int8 com requantização por deslocamento e saturação, como na TPU v1) configuráveis.
 * Array sistólico com entradas defasadas e somas parciais descendo pelas colunas (latência 2N menos 1), buffer duplo de pesos e dependências verificadas linha a linha, o que permite sobrepor multiplicação, ativação e a camada seguinte.
-* Diagrama com a frente diagonal de cálculo atravessando o array, o peso, a entrada e a soma parcial de cada elemento, a fila de pesos, o Unified Buffer e os acumuladores; estatísticas de MAC por ciclo e uso do array.
+* Diagrama de blocos no estilo da TPU v1: memória externa, DMA e WDMA, Unified Buffer, preparação dos dados com as entradas defasadas, fila de pesos sobre o array sistólico com o peso, a entrada e a soma parcial de cada elemento (a frente diagonal de cálculo fica visível), acumuladores e ativação devolvendo os resultados ao Unified Buffer; estatísticas de MAC por ciclo e uso do array.
 
 ## GPU
 
@@ -51,7 +51,7 @@ Exemplos da TPU: C = ReLU(A × B), lote de 12 linhas, lote pequeno limitado pelo
 * **Exercício**: o aluno preenche os ciclos dos eventos de cada instrução e responde perguntas próprias do modelo (transações, conflitos de banco, máscaras e reconvergência na GPU; MACs e ciclos dos pesos na TPU; vl e grupos nas lanes no processador vetorial), e o simulador corrige.
 * **Comparar modelos**: SAXPY e GEMM 8 × 8 escritas para o processador vetorial, a GPU (com e sem memória compartilhada) e a TPU, com ciclos, tempo, operações úteis por ciclo e eficiência lado a lado.
 * **Comparar**: o mesmo programa com outra configuração (por exemplo, sem encadeamento ou com mais lanes), com speedup, estatísticas e linhas do tempo lado a lado.
-* **Exportar** linha do tempo e tabela de eventos em CSV e em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), e o estado do ciclo atual em LaTeX com figuras TikZ: lanes e estágios das unidades vetoriais, array sistólico da TPU, warps com a pilha SIMT e coalescência ou bancos da GPU; e a figura do ciclo atual em SVG (o diagrama de blocos do processador vetorial ou da GPU, com as cores do tema claro).
+* **Exportar** linha do tempo e tabela de eventos em CSV e em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), e o estado do ciclo atual em LaTeX com figuras TikZ: lanes e estágios das unidades vetoriais, array sistólico da TPU, warps com a pilha SIMT e coalescência ou bancos da GPU; e a figura do ciclo atual em SVG (o diagrama de blocos do processador vetorial, da GPU ou da TPU, com as cores do tema claro).
 * **Copiar link** que abre a mesma simulação, comparação ou exercício.
 
 Exemplos prontos: SAXPY com strip mining, com LMUL = 4 e a versão escalar, encadeamento, lanes, produto escalar com redução, máscara, acesso com passo, acesso indexado e matriz vezes vetor.

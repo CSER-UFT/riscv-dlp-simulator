@@ -255,9 +255,7 @@ function setButtons(kind) {
     buttons.exercise.classList.toggle('hidden', kind !== 'sim');
     buttons.export.classList.toggle('hidden', !kind);
     buttons.export.querySelector('[data-export="state-tex"]').classList.toggle('hidden', kind !== 'sim');
-    // A figura em SVG existe para o processador vetorial e a GPU (a TPU é desenhada em HTML).
-    const model = tabManager.currentContents()?.sim?.model;
-    buttons.export.querySelector('[data-export="diagram-svg"]').classList.toggle('hidden', kind !== 'sim' || model === 'tpu');
+    buttons.export.querySelector('[data-export="diagram-svg"]').classList.toggle('hidden', kind !== 'sim');
     buttons.link.classList.toggle('hidden', !kind);
 }
 

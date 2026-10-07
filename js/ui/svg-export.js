@@ -1,5 +1,5 @@
 /**
- * Exportação do diagrama de blocos (processador vetorial e GPU) do passo atual como um arquivo SVG
+ * Exportação do diagrama de blocos (processador vetorial, GPU e TPU) do passo atual como um arquivo SVG
  * independente. O estilo calculado pelo navegador (com o tema claro, mesmo que a página esteja no escuro)
  * é gravado em cada elemento como atributos de apresentação (fill, stroke, font-size...), sem folha de
  * estilo nem variáveis CSS, para que o desenho abra igual no navegador, no Inkscape, no LibreOffice e no

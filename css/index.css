@@ -2426,3 +2426,25 @@ ol.questions input.revealed {
 .vec-svg rect.gblk.done {
     fill: color-mix(in srgb, var(--bg) 70%, var(--panel));
 }
+
+/* Diagrama de blocos da TPU */
+
+.vec-svg rect.unitbox.on {
+    stroke: var(--accent);
+    stroke-width: 2;
+    fill: var(--accent-soft);
+}
+
+.vec-svg rect.lane.on {
+    stroke: var(--accent);
+    stroke-width: 1.5;
+}
+
+.vec-svg rect.pe {
+    fill: var(--panel);
+    stroke: var(--line-strong);
+}
+
+.vec-svg rect.pe.on {
+    stroke-width: 1.5;
+}
