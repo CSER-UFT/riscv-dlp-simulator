@@ -2350,3 +2350,79 @@ ol.questions input.revealed {
 .vec-svg rect.inst {
     stroke-width: 1.5;
 }
+
+/* Diagrama de blocos da GPU */
+
+.vec-svg rect.rowsel {
+    stroke: none;
+}
+
+.vec-svg rect.rowsel.focus {
+    stroke: var(--focus);
+    stroke-width: 2;
+}
+
+.vec-svg rect.mbit {
+    fill: var(--panel);
+    stroke: var(--line-strong);
+}
+
+.vec-svg rect.regs {
+    fill: color-mix(in srgb, var(--accent) 8%, var(--panel));
+    stroke: var(--line-strong);
+}
+
+.vec-svg rect.alu {
+    fill: var(--panel);
+    stroke: var(--line);
+    stroke-dasharray: 3 2;
+}
+
+.vec-svg rect.alu.on {
+    stroke-dasharray: none;
+    stroke-width: 1.5;
+}
+
+.vec-svg rect.alu.off {
+    fill: color-mix(in srgb, var(--bg) 70%, var(--panel));
+    stroke: var(--line-strong);
+    stroke-dasharray: none;
+}
+
+.vec-svg rect.alu.focus {
+    stroke: var(--focus);
+    stroke-width: 2;
+}
+
+.vec-svg rect.lsubox,
+.vec-svg rect.netbox {
+    fill: color-mix(in srgb, var(--bg) 60%, var(--panel));
+    stroke: var(--line-strong);
+}
+
+.vec-svg rect.lsubox.on {
+    stroke: var(--accent);
+    stroke-width: 2;
+}
+
+.vec-svg rect.lsubox.focus {
+    stroke: var(--focus);
+    stroke-width: 2.5;
+}
+
+.vec-svg rect.cell.lab {
+    stroke: var(--accent);
+}
+
+.vec-svg rect.gblk.pending {
+    fill: var(--panel);
+}
+
+.vec-svg rect.gblk.running {
+    fill: var(--c-exec);
+    stroke: var(--ok);
+}
+
+.vec-svg rect.gblk.done {
+    fill: color-mix(in srgb, var(--bg) 70%, var(--panel));
+}

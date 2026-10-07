@@ -12,6 +12,7 @@ import { t } from '../i18n/index.js';
 import { className } from '../core/config.js';
 import { esc, dynColor, laneColor } from './panels.js';
 import { laneGrid, vregRows } from './diagram-vector.js';
+import { clip, tint, text, box, arrow } from './svg.js';
 
 const MAX_CELLS = 8; // elementos por lane em cada registrador
 const LEFT = 104; // coluna dos nomes
@@ -20,24 +21,6 @@ const GAP = 10; // espaço entre lanes
 const CHAR = 6.8; // largura média de um caractere de 11 px na fonte monoespaçada
 
 const MEM_CLASSES = new Set(['vload', 'vstore']);
-
-/** Texto com limite de caracteres (o restante vira reticências). */
-const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-const tint = (color, pct) => `color-mix(in srgb, ${color} ${pct}%, var(--panel))`;
-
-function text(x, y, s, cls = '', extra = '') {
-    return `<text x="${x}" y="${y}" class="${cls}" ${extra}>${esc(s)}</text>`;
-}
-
-function box(x, y, w, h, cls = '', extra = '') {
-    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="${cls}" ${extra}/>`;
-}
-
-/** Seta vertical (para baixo se y2 > y1). */
-function arrow(x, y1, y2, cls = '') {
-    const d = y2 > y1 ? -5 : 5;
-    return `<path class="wire ${cls}" d="M${x},${y1} L${x},${y2}"/><path class="head ${cls}" d="M${x - 4},${y2 + d} L${x},${y2} L${x + 4},${y2 + d} Z"/>`;
-}
 
 /** Estado de uma operação numa unidade, como no painel antigo. */
 function opState(op, c, entering) {
