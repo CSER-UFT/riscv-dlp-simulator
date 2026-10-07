@@ -19,6 +19,9 @@ export const VECTOR_LATENCY_IDS = VECTOR_CLASSES;
 /** Nome traduzido de uma classe de instrução. */
 export const className = (cls) => t(`class.${cls}`);
 
+/** Número máximo de lanes SIMD da GPU. */
+export const MAX_GPU_LANES = 16;
+
 /** Número máximo de lanes do processador vetorial. */
 export const MAX_VECTOR_LANES = 8;
 
@@ -63,7 +66,8 @@ function normalizeGpu(pg, errors) {
     const g = {
         warps,
         warpSize,
-        lanes: Math.min(warpSize, intIn(pg.lanes, 1, 32, d.lanes)),
+        // Até 16 lanes SIMD, como na figura do Patterson e Hennessy; valores maiores (de links antigos) são limitados.
+        lanes: Math.min(warpSize, MAX_GPU_LANES, intIn(pg.lanes, 1, 32, d.lanes)),
         scheduler: SCHEDULERS.includes(pg.scheduler) ? pg.scheduler : d.scheduler,
         memLatency: intIn(pg.memLatency, 1, 400, d.memLatency),
         lineBytes: [4, 8, 16, 32, 64, 128].includes(Number(pg.lineBytes)) ? Number(pg.lineBytes) : d.lineBytes,

@@ -4,7 +4,7 @@
  */
 import { EXAMPLES, exampleName } from '../examples.js';
 import { t } from '../i18n/index.js';
-import { DEFAULT_CONFIG, MAX_VECTOR_LANES, MODE_IDS, SCALAR_LATENCY_IDS, VECTOR_LATENCY_IDS, className, normalizeConfig } from '../core/config.js';
+import { DEFAULT_CONFIG, MAX_GPU_LANES, MAX_VECTOR_LANES, MODE_IDS, SCALAR_LATENCY_IDS, VECTOR_LATENCY_IDS, className, normalizeConfig } from '../core/config.js';
 import { highlight } from './highlight.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' })[c]);
@@ -208,7 +208,7 @@ export class Editor {
                 ${num('stridedRate', c.vector.stridedRate, 1, 64, t('ed.stridedRate'), 'vec-only')}
                 ${num('gpuWarps', c.gpu.warps, 1, 16, t('ed.gpuWarpsBlock'), 'gpu-only')}
                 ${num('gpuWarpSize', c.gpu.warpSize, 1, 32, t('ed.gpuWarpSize'), 'gpu-only')}
-                ${num('gpuLanes', c.gpu.lanes, 1, 32, t('ed.gpuLanes'), 'gpu-only')}
+                ${num('gpuLanes', c.gpu.lanes, 1, MAX_GPU_LANES, t('ed.gpuLanes'), 'gpu-only')}
                 <label class="field gpu-only">${t('ed.gpuScheduler')}<select name="gpuScheduler">${opt([['rr', t('ui.gpu.policy.rr')], ['gto', t('ui.gpu.policy.gto')]], c.gpu.scheduler)}</select></label>
                 ${num('gpuMem', c.gpu.memLatency, 1, 400, t('ed.gpuMem'), 'gpu-only')}
                 <label class="field gpu-only">${t('ed.gpuLine')}<select name="gpuLine">${opt([4, 8, 16, 32, 64, 128].map((b) => [b, `${b} B`]), c.gpu.lineBytes)}</select></label>

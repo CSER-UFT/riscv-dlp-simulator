@@ -41,3 +41,9 @@ test('processador vetorial: no máximo 8 lanes', () => {
     assert.equal(normalizeConfig({ vector: { lanes: 16 } }).config.vector.lanes, 8);
     assert.equal(normalizeConfig({ vector: { lanes: 3 } }).config.vector.lanes, 3);
 });
+
+test('GPU: no máximo 16 lanes SIMD', () => {
+    assert.equal(normalizeConfig({ gpu: { warpSize: 32, lanes: 32 } }).config.gpu.lanes, 16);
+    assert.equal(normalizeConfig({ gpu: { warpSize: 32, lanes: 16 } }).config.gpu.lanes, 16);
+    assert.equal(normalizeConfig({ gpu: { warpSize: 8, lanes: 16 } }).config.gpu.lanes, 8);
+});
