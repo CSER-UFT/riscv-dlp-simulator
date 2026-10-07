@@ -338,7 +338,6 @@ export default {
     'ui.vec.draining': 'elementos no pipeline; termina no ciclo {c}',
     'ui.vec.reducing': 'soma entre as lanes; termina no ciclo {c}',
     'ui.vec.svg.bus': 'instrução vetorial para todas as lanes',
-    'ui.vec.svg.moreLanes': '+{n} lanes',
     'ui.vec.svg.regfile': 'Registradores',
     'ui.vec.svg.regfileSub': 'vetoriais, VLEN {vlen}',
     'ui.vec.svg.memory': 'Memória (load e store vetoriais)',

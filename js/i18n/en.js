@@ -338,7 +338,6 @@ export default {
     'ui.vec.draining': 'elements in the pipeline; finishes in cycle {c}',
     'ui.vec.reducing': 'sum across lanes; finishes in cycle {c}',
     'ui.vec.svg.bus': 'vector instruction to every lane',
-    'ui.vec.svg.moreLanes': '+{n} lanes',
     'ui.vec.svg.regfile': 'Vector',
     'ui.vec.svg.regfileSub': 'registers, VLEN {vlen}',
     'ui.vec.svg.memory': 'Memory (vector loads and stores)',

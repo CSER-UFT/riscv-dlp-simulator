@@ -35,3 +35,9 @@ test('tempo de execução = ciclos ÷ frequência', () => {
     const sim = simulate(asm('addi a0, a0, 1\naddi a0, a0, 1'), { freqGHz: 2, trace: false });
     assert.equal(sim.timing.timeNs, sim.stats.cycles / 2);
 });
+
+test('processador vetorial: no máximo 8 lanes', () => {
+    assert.equal(normalizeConfig({ vector: { lanes: 8 } }).config.vector.lanes, 8);
+    assert.equal(normalizeConfig({ vector: { lanes: 16 } }).config.vector.lanes, 8);
+    assert.equal(normalizeConfig({ vector: { lanes: 3 } }).config.vector.lanes, 3);
+});

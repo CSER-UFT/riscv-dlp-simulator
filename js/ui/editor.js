@@ -4,7 +4,7 @@
  */
 import { EXAMPLES, exampleName } from '../examples.js';
 import { t } from '../i18n/index.js';
-import { DEFAULT_CONFIG, MODE_IDS, SCALAR_LATENCY_IDS, VECTOR_LATENCY_IDS, className, normalizeConfig } from '../core/config.js';
+import { DEFAULT_CONFIG, MAX_VECTOR_LANES, MODE_IDS, SCALAR_LATENCY_IDS, VECTOR_LATENCY_IDS, className, normalizeConfig } from '../core/config.js';
 import { highlight } from './highlight.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' })[c]);
@@ -203,7 +203,7 @@ export class Editor {
                 <label class="field">${t('ed.model')}<select name="mode">${opt(MODE_IDS.map((m) => [m, t(`mode.${m}`)]), c.mode)}</select></label>
                 <label class="field">XLEN<select name="xlen">${opt([[32, 'RV32 (32 bits)'], [64, 'RV64 (64 bits)']], c.xlen)}</select></label>
                 <label class="field vec-only">VLEN<select name="vlen">${opt([64, 128, 256, 512, 1024].map((v) => [v, t('ed.vlenOption', { v, n: v / 32 })]), c.vector.vlen)}</select></label>
-                ${num('lanes', c.vector.lanes, 1, 64, t('ed.lanes'), 'vec-only')}
+                ${num('lanes', c.vector.lanes, 1, MAX_VECTOR_LANES, t('ed.lanes'), 'vec-only')}
                 ${check('chaining', c.vector.chaining, t('ed.chaining'), 'vec-only')}
                 ${num('stridedRate', c.vector.stridedRate, 1, 64, t('ed.stridedRate'), 'vec-only')}
                 ${num('gpuWarps', c.gpu.warps, 1, 16, t('ed.gpuWarpsBlock'), 'gpu-only')}

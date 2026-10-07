@@ -13,7 +13,6 @@ import { className } from '../core/config.js';
 import { esc, dynColor, laneColor } from './panels.js';
 import { laneGrid, vregRows } from './diagram-vector.js';
 
-const MAX_LANES = 8; // lanes desenhadas; as demais são indicadas
 const MAX_CELLS = 8; // elementos por lane em cada registrador
 const LEFT = 104; // coluna dos nomes
 const RIGHT = 410; // coluna do estado das unidades
@@ -53,7 +52,7 @@ function opState(op, c, entering) {
 export function vectorSvg(ctx, snap, focus) {
     const cfg = ctx.sim.config;
     const L = cfg.vector.lanes;
-    const shown = Math.min(L, MAX_LANES);
+    const shown = L; // a configuração limita a 8 lanes
     const c = snap.cycle;
     const out = [];
 
@@ -81,7 +80,7 @@ export function vectorSvg(ctx, snap, focus) {
     const order = [...units.filter((x) => !x.mem), ...units.filter((x) => x.mem)];
     const maxDepth = Math.max(1, ...units.map((x) => x.depth));
     const laneW = Math.max(perLane * cellW + 12, Math.min(maxDepth, 12) * 14 + 12, 96);
-    const lanesW = shown * laneW + (shown - 1) * GAP + (L > shown ? GAP + 40 : 0);
+    const lanesW = shown * laneW + (shown - 1) * GAP;
     const laneX = (l) => LEFT + l * (laneW + GAP);
 
     // Alto: emissão e unidade escalar.
@@ -159,11 +158,6 @@ export function vectorSvg(ctx, snap, focus) {
         out.push(box(x0, laneTop, laneW, laneBottom - laneTop, 'lane'));
         out.push(`<rect x="${x0}" y="${laneTop}" width="${laneW}" height="4" rx="2" style="fill:${laneColor(l)}"/>`);
         out.push(text(x0 + laneW / 2, laneTop + 16, `${t('ui.vec.lane')} ${l}`, 'small center strong'));
-    }
-    if (L > shown) {
-        const xm = LEFT + shown * (laneW + GAP);
-        out.push(text(xm + 20, laneTop + (laneBottom - laneTop) / 2, '…', 'title center'));
-        out.push(text(xm + 20, laneTop + (laneBottom - laneTop) / 2 + 16, t('ui.vec.svg.moreLanes', { n: L - shown }), 'small center dim'));
     }
 
     // Banco de registradores vetoriais repartido entre as lanes.

@@ -19,6 +19,9 @@ export const VECTOR_LATENCY_IDS = VECTOR_CLASSES;
 /** Nome traduzido de uma classe de instrução. */
 export const className = (cls) => t(`class.${cls}`);
 
+/** Número máximo de lanes do processador vetorial. */
+export const MAX_VECTOR_LANES = 8;
+
 export const DEFAULT_CONFIG = {
     mode: 'vector',
     xlen: 32,
@@ -112,7 +115,8 @@ export function normalizeConfig(partial = {}) {
         branchPenalty: intIn(partial.branchPenalty, 0, 20, d.branchPenalty),
         vector: {
             vlen: intIn(pv.vlen, 64, 4096, d.vector.vlen),
-            lanes: intIn(pv.lanes, 1, 64, d.vector.lanes),
+            // Até 8 lanes, o que basta para fins didáticos e cabe no diagrama; valores maiores (de links antigos) são limitados.
+            lanes: Math.min(MAX_VECTOR_LANES, intIn(pv.lanes, 1, 64, d.vector.lanes)),
             chaining: bool(pv.chaining, d.vector.chaining),
             stridedRate: intIn(pv.stridedRate, 1, 64, d.vector.stridedRate),
             units: [],
