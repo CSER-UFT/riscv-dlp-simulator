@@ -119,14 +119,10 @@ export default {
 <dl>
     <dt>Cabeçalho</dt>
     <dd>O PC, o estado vetorial atual (vl, SEW e VLMAX) e a configuração principal: VLEN, lanes e encadeamento.</dd>
-    <dt>Emissão</dt>
-    <dd>A instrução que está sendo emitida, ou a que está parada e o motivo (RAW, WAR, WAW, unidade ocupada, registrador escalar ou memória), com o ciclo em que poderá começar. Abaixo, as próximas instruções na ordem do programa. Depois de um desvio tomado aparece uma <em>bolha</em>.</dd>
-    <dt>Unidade escalar</dt>
-    <dd>As instruções escalares em andamento e o ciclo em que o resultado fica pronto.</dd>
-    <dt>Unidades funcionais vetoriais</dt>
-    <dd>Uma por unidade configurada (por padrão LSU para loads e stores, ALU para operações inteiras e soma de ponto flutuante, MUL para multiplicações e DIV para divisões). A grade tem uma linha por lane e uma coluna por estágio do pipeline; cada célula mostra o índice do elemento que está naquele estágio, na cor da instrução. A lista abaixo da grade mostra quais elementos estão entrando e quando a instrução termina.</dd>
-    <dt>Registradores vetoriais</dt>
-    <dd>Os registradores usados pelo programa, um elemento por coluna. A faixa colorida no alto de cada elemento indica a lane que o processa: o elemento i fica na lane i mod lanes, e cada lane tem a sua fatia do banco de registradores. A cauda (índices a partir de vl) aparece esmaecida, e os elementos escritos no passo atual ficam destacados. Registradores escritos por comparações aparecem como máscara, um bit por elemento.</dd>
+    <dt>Diagrama de blocos</dt>
+    <dd>Desenhado no estilo das figuras de unidade vetorial com lanes do Patterson e Hennessy. No alto ficam a <strong>emissão</strong> (a instrução emitida, ou a parada e o motivo: RAW, WAR, WAW, unidade ocupada, registrador escalar ou memória, com o ciclo em que poderá começar; depois de um desvio tomado, uma <em>bolha</em>; e as próximas instruções) e a <strong>unidade escalar</strong> (as instruções escalares em andamento e o ciclo em que cada resultado fica pronto). Um barramento leva a instrução vetorial a todas as lanes.</dd>
+    <dd>Cada coluna é uma <strong>lane</strong>. No alto dela está a sua fatia do banco de registradores vetoriais: a lane l guarda os elementos i com i mod lanes = l (os números acima das células; com LMUL maior que 1, cada célula traz o seu índice). A cauda (a partir de vl) aparece esmaecida e os elementos escritos no passo ficam destacados; registradores escritos por comparações aparecem como máscara. Abaixo vêm as <strong>unidades funcionais</strong> configuradas (por padrão ALU, MUL e DIV; a LSU, de loads e stores, fica na base, ligada à memória): cada unidade tem um trecho em cada lane, com um quadro por estágio do pipeline mostrando o elemento que está nele, na cor da instrução. À direita, quais elementos estão entrando e quando a instrução termina.</dd>
+    <dd>Com mais de 8 lanes, o desenho mostra as 8 primeiras e indica as demais; com mais de 8 elementos por lane, os últimos viram reticências. Passe o mouse sobre uma célula ou uma unidade para ver o valor, as classes e as latências.</dd>
     <dt>Registradores escalares, memória e estatísticas</dt>
     <dd>Os registradores <code>x</code> e <code>f</code> usados, as palavras de memória (com rótulos) e as estatísticas da execução completa.</dd>
 </dl>

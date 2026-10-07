@@ -118,14 +118,10 @@ export default {
 <dl>
     <dt>Header</dt>
     <dd>The PC, the current vector state (vl, SEW and VLMAX) and the main configuration: VLEN, lanes and chaining.</dd>
-    <dt>Issue</dt>
-    <dd>The instruction being issued, or the stalled one and the reason (RAW, WAR, WAW, busy unit, scalar register or memory), with the cycle in which it can start. Below, the next instructions in program order. After a taken branch a <em>bubble</em> shows up.</dd>
-    <dt>Scalar unit</dt>
-    <dd>The scalar instructions in flight and the cycle in which each result is ready.</dd>
-    <dt>Vector functional units</dt>
-    <dd>One per configured unit (by default LSU for loads and stores, ALU for integer operations and floating point add, MUL for multiplications and DIV for divisions). The grid has one row per lane and one column per pipeline stage; each cell shows the index of the element in that stage, in the color of its instruction. The list below the grid shows which elements are entering and when the instruction finishes.</dd>
-    <dt>Vector registers</dt>
-    <dd>The registers used by the program, one element per column. The colored strip at the top of each element shows the lane that processes it: element i goes to lane i mod lanes, and each lane holds its own slice of the register file. The tail (indices from vl on) is dimmed, and the elements written in the current step are highlighted. Registers written by comparisons are shown as masks, one bit per element.</dd>
+    <dt>Block diagram</dt>
+    <dd>Drawn in the style of the Patterson and Hennessy figures of a vector unit with lanes. At the top are the <strong>issue</strong> stage (the issued instruction, or the stalled one and the reason: RAW, WAR, WAW, busy unit, scalar register or memory, with the cycle in which it can start; after a taken branch, a <em>bubble</em>; and the next instructions) and the <strong>scalar unit</strong> (the scalar instructions in flight and the cycle in which each result is ready). A bus carries the vector instruction to every lane.</dd>
+    <dd>Each column is a <strong>lane</strong>. At its top is its slice of the vector register file: lane l holds the elements i with i mod lanes = l (the numbers above the cells; with LMUL greater than 1, each cell shows its own index). The tail (from vl on) is faded and the elements written in the step are highlighted; registers written by comparisons are shown as masks. Below come the configured <strong>functional units</strong> (by default ALU, MUL and DIV; the LSU, for loads and stores, sits at the bottom, connected to memory): each unit has a slice in every lane, with one box per pipeline stage showing the element in it, in the color of its instruction. On the right, which elements are entering and when the instruction finishes.</dd>
+    <dd>With more than 8 lanes, the drawing shows the first 8 and indicates the rest; with more than 8 elements per lane, the last ones become an ellipsis. Hover over a cell or a unit to see the value, the classes and the latencies.</dd>
     <dt>Scalar registers, memory and statistics</dt>
     <dd>The <code>x</code> and <code>f</code> registers in use, the memory words (with labels) and the statistics of the whole run.</dd>
 </dl>

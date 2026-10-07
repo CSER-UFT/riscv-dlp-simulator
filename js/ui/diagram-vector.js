@@ -1,12 +1,14 @@
 /**
- * Diagrama do processador vetorial: emissão, unidade escalar, unidades funcionais vetoriais com as lanes e
- * os estágios de pipeline, banco de registradores vetoriais, registradores escalares, memória e estatísticas.
+ * Diagrama do processador vetorial: o desenho de blocos (vector-svg.js) com a emissão, a unidade escalar e
+ * as lanes, seguido dos registradores escalares, da memória e das estatísticas. Os painéis de emissão e da
+ * unidade escalar continuam aqui porque a TPU os usa; laneGrid e vregRows servem ao desenho e à exportação.
  */
 import * as fmt from '../riscv/format.js';
 import { getRaw, rawToValue, maskBit } from '../riscv/vector.js';
 import { t } from '../i18n/index.js';
 import { className } from '../core/config.js';
 import { esc, dynColor, laneColor, registersPanel, memoryPanel, statsPanel } from './panels.js';
+import { vectorSvg } from './vector-svg.js';
 
 const instText = (ctx, id) => esc(ctx.sim.dyn[id].text);
 
@@ -74,35 +76,6 @@ export function laneGrid(ctx, snap, i) {
     return { L, depth, grid, entering };
 }
 
-function unitPanel(ctx, snap, u, i, focus) {
-    const cfg = ctx.sim.config;
-    const unitCfg = cfg.vector.units[i];
-    const { depth, grid, entering: ents } = laneGrid(ctx, snap, i);
-    const c = snap.cycle;
-    const lines = [];
-    for (const [k, op] of u.ops.entries()) {
-        const entering = ents[k];
-        const entered = Math.min(op.slots, Math.max(0, (c - op.t0 + 1)) * op.rate);
-        const lastWrite = op.t0 + op.G - 1 + op.S - 1;
-        let state;
-        if (op.slots === 0) state = t('ui.vec.noElems');
-        else if (entering) state = t('ui.vec.entering', { list: `${entering[0]}..${entering[entering.length - 1]}`, n: entered, total: op.slots });
-        else if (op.end && c > lastWrite) state = t('ui.vec.reducing', { c: op.done });
-        else state = t('ui.vec.draining', { c: op.done });
-        lines.push(`<li style="--tag:${dynColor(op.dyn)}"><code class="tagged">${instText(ctx, op.dyn)}</code> <span class="sub">${esc(state)}</span></li>`);
-    }
-    const head = `<tr><th>${t('ui.vec.lane')}</th>${Array.from({ length: depth }, (_, k) => `<th>${k + 1}</th>`).join('')}</tr>`;
-    const body = grid.map((row, lane) => `<tr><th class="lane" style="--lane:${laneColor(lane)}">${lane}</th>${row.map((cell) => (cell
-        ? `<td class="el" style="--tag:${dynColor(cell.dyn)}">${cell.e}</td>`
-        : '<td></td>')).join('')}</tr>`).join('');
-    const classes = unitCfg.classes.map((k) => t('ui.vec.classLat', { cls: t(`classShort.${k}`), n: cfg.latency[k] })).join(', ');
-    return `<section class="panel unit ${u.ops.length ? 'busy' : ''} ${focus.has(`unit:${u.name}`) ? 'focus' : ''}" data-unit="${esc(u.name)}">
-        <h3>${esc(u.name)} <span class="sub">${esc(t(unitCfg.pipelined ? 'ui.vec.pipelined' : 'ui.vec.notPipelined'))}</span></h3>
-        <p class="note" title="${esc(unitCfg.classes.map((k) => className(k)).join(', '))}">${esc(classes)}</p>
-        <table class="lanes"><tr><th></th><th colspan="${depth}">${t('ui.vec.stages')}</th></tr>${head}${body}</table>
-        ${lines.length ? `<ul class="ops">${lines.join('')}</ul>` : `<p class="dim">${t('ui.vec.free')}</p>`}</section>`;
-}
-
 /** Valor de um elemento para exibição. */
 function elemText(bytes, e, sew, type) {
     const raw = getRaw(bytes, e, sew);
@@ -143,20 +116,6 @@ export function vregRows(ctx, snap) {
     });
 }
 
-function vregPanel(ctx, snap, focus) {
-    const cfg = ctx.sim.config;
-    const vlen = cfg.vector.vlen;
-    const L = cfg.vector.lanes;
-    const rows = vregRows(ctx, snap).map((row) => {
-        const cells = row.cells.map((cl) => `<td class="${cl.tail ? 'tail' : ''} ${cl.isNew ? 'new' : ''}" style="--lane:${laneColor(cl.lane)}" title="${row.off ? esc(t('ui.vec.elemN', { e: cl.e })) : ''}">${esc(cl.text)}</td>`).join('');
-        return `<tr class="${focus.has(`vreg:${row.name}`) ? 'focus' : ''}"><th>${row.name}<span class="abi">${esc(row.kind)}</span></th>${cells}</tr>`;
-    }).join('');
-    return `<section class="panel vregs ${[...focus].some((f) => f.startsWith('vreg:')) ? 'focus' : ''}" data-part="vregs">
-        <h3>${t('ui.vec.vregs')} <span class="sub">${t('ui.vec.vregsSub', { vlen, lanes: L })}</span></h3>
-        ${rows ? `<table class="vregs">${rows}</table>` : `<p class="dim">${t('ui.vec.noVregs')}</p>`}
-        <p class="note">${t('ui.vec.vregsNote')}</p></section>`;
-}
-
 export function renderVector(el, ctx, snap) {
     const focus = new Set(snap.focus ?? []);
     const cfg = ctx.sim.config;
@@ -175,12 +134,10 @@ export function renderVector(el, ctx, snap) {
                 <span class="pcbox ${focus.has('vl') ? 'focus' : ''}">${esc(vlText)}</span>
                 <span class="sub">${esc(options)}</span>
             </div>
-            <div class="vec-row">
-                <div class="vec-side">${issuePanel(ctx, snap, focus)}${scalarPanel(ctx, snap)}</div>
-                <div class="vec-units">${snap.units.map((u, i) => unitPanel(ctx, snap, u, i, focus)).join('')}</div>
-            </div>
+            <section class="panel vec-diagram">${vectorSvg(ctx, snap, focus)}
+                <p class="note">${t('ui.vec.svg.note')}</p></section>
             <div class="pipe-bottom">
-                ${vregPanel(ctx, snap, focus)}${registersPanel(ctx, snap, focus)}${memoryPanel(ctx, snap, focus)}${statsPanel(ctx)}
+                ${registersPanel(ctx, snap, focus)}${memoryPanel(ctx, snap, focus)}${statsPanel(ctx)}
             </div>
         </div>`;
 }

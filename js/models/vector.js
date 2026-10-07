@@ -374,7 +374,8 @@ export function simulateVector(program, userConfig = {}) {
             touched.get(reg).add(slot < 0 ? 0 : slot);
         }
         for (const [reg, slots] of touched) {
-            const type = viewType(def) ?? (fpRegs.has(reg) ? 'f' : 'i');
+            // Membros de um grupo de LMUL registradores herdam o tipo do primeiro (o nomeado na instrução).
+            const type = viewType(def) ?? (fpRegs.has(reg) || fpRegs.has(reg - (reg % op.lmul)) ? 'f' : 'i');
             // Posição do registrador no grupo de LMUL registradores: o primeiro elemento dele.
             const off = type === 'm' || def.kind === 'red' ? 0 : (reg % op.lmul) * (vc.vlen / op.sew);
             S.view[reg] = { sew: op.sew, type, off };

@@ -2183,3 +2183,170 @@ ol.questions input.revealed {
     background: var(--accent-soft);
     border-color: var(--accent);
 }
+
+/* Diagrama de blocos do processador vetorial ---------------------------------------------------------------- */
+
+.panel.vec-diagram {
+    overflow-x: auto;
+}
+
+.vec-svg {
+    display: block;
+    font-family: var(--sans, system-ui, sans-serif);
+    font-size: 12px;
+}
+
+.vec-svg text {
+    fill: var(--ink);
+}
+
+.vec-svg text.title {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.vec-svg text.small {
+    font-size: 11.5px;
+}
+
+.vec-svg text.tiny {
+    font-size: 10px;
+}
+
+.vec-svg text.idx {
+    font-size: 8.5px;
+}
+
+.vec-svg text.mono {
+    font-family: var(--mono);
+    font-size: 11px;
+}
+
+.vec-svg text.strong {
+    font-weight: 600;
+}
+
+.vec-svg text.center {
+    text-anchor: middle;
+}
+
+.vec-svg text.end {
+    text-anchor: end;
+}
+
+.vec-svg text.dim {
+    fill: var(--faint);
+}
+
+.vec-svg text.warn {
+    fill: var(--warn);
+    font-weight: 600;
+}
+
+.vec-svg text.ok {
+    fill: var(--ok);
+}
+
+.vec-svg text.hl {
+    fill: var(--focus);
+}
+
+.vec-svg rect {
+    fill: var(--panel);
+    stroke: var(--line-strong);
+    stroke-width: 1;
+}
+
+.vec-svg rect.unitbox {
+    fill: var(--panel);
+    stroke: var(--line-strong);
+}
+
+.vec-svg .blk.focus rect.unitbox {
+    stroke: var(--focus);
+    stroke-width: 2.5;
+    fill: var(--focus-soft);
+}
+
+.vec-svg rect.lane {
+    fill: color-mix(in srgb, var(--bg) 60%, var(--panel));
+    stroke: var(--line-strong);
+}
+
+.vec-svg rect.cell {
+    fill: var(--panel);
+    stroke: var(--line);
+}
+
+.vec-svg rect.cell.tail {
+    fill: color-mix(in srgb, var(--bg) 70%, var(--panel));
+}
+
+.vec-svg rect.cell.new {
+    fill: var(--focus-soft);
+    stroke: var(--focus);
+    stroke-width: 2;
+}
+
+.vec-svg g.focus rect.cell {
+    stroke: var(--focus);
+}
+
+.vec-svg rect.pipe {
+    fill: transparent;
+    stroke: var(--line);
+    stroke-dasharray: 3 2;
+}
+
+.vec-svg .unit.busy rect.pipe {
+    stroke: var(--line-strong);
+    stroke-dasharray: none;
+}
+
+.vec-svg rect.pipe.focus {
+    stroke: var(--focus);
+    stroke-width: 2;
+    stroke-dasharray: none;
+}
+
+.vec-svg rect.stage {
+    fill: var(--panel);
+    stroke: var(--line);
+}
+
+.vec-svg rect.membox {
+    fill: var(--c-mem);
+    stroke: var(--line-strong);
+}
+
+.vec-svg rect.membox.on {
+    stroke: var(--accent);
+    stroke-width: 2;
+}
+
+.vec-svg .wire {
+    fill: none;
+    stroke: var(--wire);
+    stroke-width: 1.5;
+}
+
+.vec-svg .wire.bus {
+    stroke-width: 3;
+}
+
+.vec-svg .head {
+    fill: var(--wire);
+    stroke: none;
+}
+
+.vec-svg .wire.on {
+    stroke: var(--accent);
+}
+
+.vec-svg .head.on {
+    fill: var(--accent);
+}
+
+.vec-svg rect.inst {
+    stroke-width: 1.5;
+}
