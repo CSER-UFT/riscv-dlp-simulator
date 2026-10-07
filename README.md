@@ -17,7 +17,7 @@ O simulador roda inteiramente no navegador (HTML e JavaScript, sem dependências
 * VLEN, número de lanes, encadeamento (chaining) e elementos por ciclo em acessos com passo ou indexados configuráveis.
 * Unidades funcionais vetoriais configuráveis (nome, classes de instrução, com ou sem pipeline) e latências de partida por classe.
 * Dependências verificadas bit a bit nos registradores vetoriais (RAW, WAR e WAW), por registrador nos escalares e por endereço na memória; reduções com árvore de soma entre as lanes.
-* Diagrama com a emissão (e o motivo de cada parada), a unidade escalar, a grade lanes × estágios de cada unidade funcional, os registradores vetoriais com a lane de cada elemento, os registradores escalares, a memória e as estatísticas (elementos e operações de ponto flutuante por ciclo, uso das lanes, paradas por motivo).
+* Diagrama de blocos no estilo das figuras do Patterson e Hennessy: a emissão (e o motivo de cada parada) e a unidade escalar no alto e, em cada lane (de 1 a 8), a fatia do banco de registradores vetoriais e um trecho de cada unidade funcional com os elementos nos estágios, ligadas à memória pela LSU; abaixo, os registradores escalares, a memória e as estatísticas (elementos e operações de ponto flutuante por ciclo, uso das lanes, paradas por motivo).
 
 ## Linguagem aceita
 
@@ -39,7 +39,7 @@ Simplificações: LMUL inteiro (sem frações), com a largura dos acessos à mem
 * Grade de blocos com até 1024 threads; o SM recebe quantos blocos couberem no limite de warps residentes e na memória compartilhada.
 * Memória compartilhada por bloco (seção `.shared`) dividida em bancos de 4 bytes, com serialização dos conflitos; cache L1 associativa por conjunto, com LRU, que só afeta o tempo.
 * Número de blocos e de warps, threads por warp, vias por unidade, escalonador, latência da memória, tamanho das transações, warps residentes, memória compartilhada, bancos e L1 configuráveis.
-* Diagrama com o warp emitido, a máscara de threads ativas e a pilha SIMT de cada warp, a ocupação das unidades, a coalescência do último acesso (endereço de cada thread colorido pela linha) e os registradores de todas as threads; estatísticas de eficiência SIMD, transações por acesso e ciclos sem emissão.
+* Diagrama de blocos no estilo do processador SIMD multithreaded do Patterson e Hennessy: o escalonador de warps com o placar (PC, próxima instrução, máscara de threads ativas, situação e pilha SIMT), o registrador de instrução, as lanes SIMD (de 1 a 16) com os registradores das threads e as unidades ALU e FPU, mostrando as lanes desligadas pela máscara, a unidade de load e store com os endereços do último acesso coloridos pela linha ou pelo banco, a rede de interconexão e as memórias compartilhada e global; abaixo, os registradores de todas as threads. Estatísticas de eficiência SIMD, transações por acesso e ciclos sem emissão.
 
 Exemplos da GPU: SAXPY (ocultação de latência com mais warps), divergência, coalescência, redução em árvore na memória compartilhada com barreira e conflitos de banco.
 
@@ -51,7 +51,7 @@ Exemplos da TPU: C = ReLU(A × B), lote de 12 linhas, lote pequeno limitado pelo
 * **Exercício**: o aluno preenche os ciclos dos eventos de cada instrução e responde perguntas próprias do modelo (transações, conflitos de banco, máscaras e reconvergência na GPU; MACs e ciclos dos pesos na TPU; vl e grupos nas lanes no processador vetorial), e o simulador corrige.
 * **Comparar modelos**: SAXPY e GEMM 8 × 8 escritas para o processador vetorial, a GPU (com e sem memória compartilhada) e a TPU, com ciclos, tempo, operações úteis por ciclo e eficiência lado a lado.
 * **Comparar**: o mesmo programa com outra configuração (por exemplo, sem encadeamento ou com mais lanes), com speedup, estatísticas e linhas do tempo lado a lado.
-* **Exportar** linha do tempo e tabela de eventos em CSV e em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), e o estado do ciclo atual em LaTeX com figuras TikZ: lanes e estágios das unidades vetoriais, array sistólico da TPU, warps com a pilha SIMT e coalescência ou bancos da GPU.
+* **Exportar** linha do tempo e tabela de eventos em CSV e em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), e o estado do ciclo atual em LaTeX com figuras TikZ: lanes e estágios das unidades vetoriais, array sistólico da TPU, warps com a pilha SIMT e coalescência ou bancos da GPU; e a figura do ciclo atual em SVG (o diagrama de blocos do processador vetorial ou da GPU, com as cores do tema claro).
 * **Copiar link** que abre a mesma simulação, comparação ou exercício.
 
 Exemplos prontos: SAXPY com strip mining, com LMUL = 4 e a versão escalar, encadeamento, lanes, produto escalar com redução, máscara, acesso com passo, acesso indexado e matriz vezes vetor.

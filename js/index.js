@@ -14,6 +14,7 @@ import { renderModels } from './ui/models.js';
 import { exampleName } from './examples.js';
 import { timelineCsv, timelineLatex, eventsCsv, eventsLatex, download } from './ui/export.js';
 import { stateLatex } from './ui/export-state.js';
+import { standaloneSvg } from './ui/svg-export.js';
 import { Help, MODEL_SECTION } from './ui/help.js';
 import { configDiff } from './ui/summary.js';
 
@@ -211,6 +212,11 @@ for (const item of buttons.export.querySelectorAll('[data-export]')) {
                 const snap = currentSnap(c);
                 return download(`estado-ciclo-${snap.cycle}.tex`, stateLatex(c.ctx, snap), 'application/x-tex');
             }
+            case 'diagram-svg': {
+                const svg = document.querySelector('#diagram svg.vec-svg');
+                if (c.kind !== 'sim' || !svg) return;
+                return download(`diagrama-ciclo-${currentSnap(c).cycle}.svg`, standaloneSvg(svg), 'image/svg+xml');
+            }
         }
     });
 }
@@ -249,6 +255,9 @@ function setButtons(kind) {
     buttons.exercise.classList.toggle('hidden', kind !== 'sim');
     buttons.export.classList.toggle('hidden', !kind);
     buttons.export.querySelector('[data-export="state-tex"]').classList.toggle('hidden', kind !== 'sim');
+    // A figura em SVG existe para o processador vetorial e a GPU (a TPU é desenhada em HTML).
+    const model = tabManager.currentContents()?.sim?.model;
+    buttons.export.querySelector('[data-export="diagram-svg"]').classList.toggle('hidden', kind !== 'sim' || model === 'tpu');
     buttons.link.classList.toggle('hidden', !kind);
 }
 

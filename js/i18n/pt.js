@@ -246,6 +246,7 @@ export default {
     'ui.int8Bytes': 'Bytes (int8)',
     'ui.tpu.int8Head': 'int8 · acumuladores de 32 bits · requantização >> {s} com saturação',
 
+    'ui.exp.diagramSvg': 'Figura do ciclo atual (SVG)',
     'ui.exp.stateTex': 'Estado do ciclo atual (LaTeX/TikZ)',
     'export.stateTitle': 'Estado do ciclo {c} ({model}) gerado pelo Simulador de Paralelismo de Dados RISC-V',
     'export.stateRequires': 'Requer \\usepackage[table]{xcolor}, \\usepackage{graphicx} e \\usepackage{tikz}.',
