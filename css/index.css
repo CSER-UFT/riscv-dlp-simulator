@@ -6,24 +6,24 @@
 
 :root,
 [data-theme='light'] {
-    --bg: #eef1f6;
+    --bg: #f8fafc;
     --panel: #ffffff;
-    --panel-2: #f5f7fb;
-    --line: #d8dee8;
-    --line-strong: #b9c3d3;
-    --ink: #1d2433;
-    --muted: #5d687c;
-    --faint: #8d97a8;
-    --accent: #3352c4;
+    --panel-2: #f2f4f8;
+    --line: #b4bfcf;
+    --line-strong: #8796ad;
+    --ink: #111827;
+    --muted: #475266;
+    --faint: #667085;
+    --accent: #1650ff;
     --accent-ink: #ffffff;
-    --accent-soft: #e2e8fb;
-    --focus: #e9a90c;
-    --focus-soft: #fff4d4;
-    --warn: #c0441b;
-    --ok: #237a4b;
-    --ok-soft: #d8f0e2;
-    --bad-soft: #f8dcd4;
-    --wire: #c5ccd8;
+    --accent-soft: #e3ebff;
+    --focus: #d99700;
+    --focus-soft: #fff3cf;
+    --warn: #b23a12;
+    --ok: #1d6e42;
+    --ok-soft: #d6f0e0;
+    --bad-soft: #f8d9d0;
+    --wire: #8f9bb0;
     --c-issue: #e3e7fb;
     --c-id: #e7ebf2;
     --c-exec: #d7f0e3;
@@ -34,40 +34,40 @@
     --c-stall: #fbe5cc;
     --tag-bg: 18%;
     --tag-fg: 75%;
-    --shadow: 0 6px 24px rgba(23, 34, 61, 0.12);
+    --shadow: 0 4px 16px rgba(17, 24, 39, 0.10);
     color-scheme: light;
 }
 
 [data-theme='dark'] {
-    --bg: #141922;
-    --panel: #1b2230;
-    --panel-2: #212a3a;
-    --line: #2e3849;
-    --line-strong: #435066;
-    --ink: #e4e8f0;
-    --muted: #a0aabb;
-    --faint: #717c90;
-    --accent: #8ea2ff;
-    --accent-ink: #11182c;
-    --accent-soft: #263257;
-    --focus: #f3c24d;
-    --focus-soft: #3a3320;
-    --warn: #f28b62;
-    --ok: #6fd39b;
-    --ok-soft: #1f3b2d;
-    --bad-soft: #43262a;
-    --wire: #3a4559;
-    --c-issue: #2a3360;
-    --c-id: #2a3242;
-    --c-exec: #1f4033;
-    --c-mem: #1d3a4d;
-    --c-write: #3d2a4d;
-    --c-commit: #4a3d1c;
-    --c-squash: #4d2728;
-    --c-stall: #4a3420;
-    --tag-bg: 30%;
-    --tag-fg: 55%;
-    --shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    --bg: #000000;
+    --panel: #0d0f14;
+    --panel-2: #1a1e27;
+    --line: #6b7486;
+    --line-strong: #9aa3b5;
+    --ink: #ffffff;
+    --muted: #dde2ea;
+    --faint: #b4bccb;
+    --accent: #5294ff;
+    --accent-ink: #000000;
+    --accent-soft: #0f2a5e;
+    --focus: #ffd23f;
+    --focus-soft: #3d3200;
+    --warn: #ff9e7a;
+    --ok: #7ef0ad;
+    --ok-soft: #0f3a24;
+    --bad-soft: #4a1d1d;
+    --wire: #7c869a;
+    --c-issue: #22306e;
+    --c-id: #2a3140;
+    --c-exec: #11452c;
+    --c-mem: #0f3c57;
+    --c-write: #44255a;
+    --c-commit: #574300;
+    --c-squash: #5c1f22;
+    --c-stall: #5a3410;
+    --tag-bg: 40%;
+    --tag-fg: 75%;
+    --shadow: 0 0 0 1px #6b7486;
     color-scheme: dark;
 }
 
@@ -1279,10 +1279,10 @@ table.exercise input {
 .hl-bad { color: var(--warn); text-decoration: underline wavy var(--warn); }
 .hl-err { background: color-mix(in srgb, var(--warn) 14%, transparent); text-decoration: underline wavy var(--warn); }
 
-[data-theme='dark'] .hl-reg { color: #c79bf2; }
-[data-theme='dark'] .hl-num { color: #f0a273; }
-[data-theme='dark'] .hl-label { color: #f2c46d; }
-[data-theme='dark'] .hl-dir { color: #74c6e8; }
+[data-theme='dark'] .hl-reg { color: #dcb6ff; }
+[data-theme='dark'] .hl-num { color: #ffb68a; }
+[data-theme='dark'] .hl-label { color: #ffd479; }
+[data-theme='dark'] .hl-dir { color: #8fdcff; }
 
 ul.errors {
     list-style: none;
