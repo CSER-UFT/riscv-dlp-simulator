@@ -60,7 +60,7 @@ Exemplos prontos: SAXPY com strip mining, com LMUL = 4 e a versão escalar, enca
 
 Clique em **Nova simulação**, escolha um exemplo ou escreva o programa, ajuste a configuração e clique em **Executar** (ou `Ctrl` + `Enter`). O botão **Ajuda** abre o manual completo.
 
-* `Seta direita` e `Seta esquerda`: avança ou volta um passo; com `Ctrl`, um ciclo.
+* `Seta direita` e `Seta esquerda`: avança ou volta um passo (com ou sem `Ctrl`, como o clique nos botões); com `Shift`, um ciclo.
 * `Home` e `End`: início e fim da execução.
 * Arrastar, roda do mouse e duplo clique: mover, ampliar e restaurar o diagrama.
 
