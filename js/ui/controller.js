@@ -40,10 +40,9 @@ export class Controller extends EventTarget {
                 this.goToStart();
             else if (e.key === 'End')
                 this.goToEnd();
-            // Seta (com ou sem Ctrl) avança um passo, como o clique no botão; Shift + seta pula um ciclo.
-            else if (e.shiftKey && e.key === 'ArrowLeft')
+            else if (e.ctrlKey && e.key === 'ArrowLeft')
                 this.goBackCycle();
-            else if (e.shiftKey && e.key === 'ArrowRight')
+            else if (e.ctrlKey && e.key === 'ArrowRight')
                 this.goFwdCycle();
             else if (e.key === 'ArrowLeft')
                 this.goBackStep();
@@ -54,11 +53,11 @@ export class Controller extends EventTarget {
             if (handled)
                 e.preventDefault();
         });
-        // Botões externos: início e fim. Botões internos: um passo (com Ctrl ou Shift, um ciclo).
+        // Botões externos: início e fim. Botões internos: um passo (com Ctrl, um ciclo).
         this.skipBack.addEventListener('click', this.goToStart.bind(this));
         this.skipFwd.addEventListener('click', this.goToEnd.bind(this));
-        this.stepBack.addEventListener('click', (e) => (e.ctrlKey || e.metaKey || e.shiftKey ? this.goBackCycle() : this.goBackStep()));
-        this.stepFwd.addEventListener('click', (e) => (e.ctrlKey || e.metaKey || e.shiftKey ? this.goFwdCycle() : this.goFwdStep()));
+        this.stepBack.addEventListener('click', (e) => (e.ctrlKey || e.metaKey ? this.goBackCycle() : this.goBackStep()));
+        this.stepFwd.addEventListener('click', (e) => (e.ctrlKey || e.metaKey ? this.goFwdCycle() : this.goFwdStep()));
     }
 
     /** Vai para o estado inicial. */

@@ -49,10 +49,10 @@ export default {
 <p>Cada ciclo é dividido em <strong>passos</strong>, um para cada acontecimento relevante (uma emissão, uma parada, a escrita de um grupo de elementos). Avançar um passo mostra o próximo acontecimento; avançar um ciclo pula para o fim do ciclo seguinte.</p>
 <table>
     <tr><th>Ação</th><th>Teclado</th><th>Botão</th></tr>
-    <tr><td>Avançar um passo</td><td><kbd>→</kbd> ou <kbd>Ctrl</kbd> + <kbd>→</kbd></td><td>botão logo à direita do contador</td></tr>
-    <tr><td>Voltar um passo</td><td><kbd>←</kbd> ou <kbd>Ctrl</kbd> + <kbd>←</kbd></td><td>botão logo à esquerda do contador</td></tr>
-    <tr><td>Avançar um ciclo</td><td><kbd>Shift</kbd> + <kbd>→</kbd></td><td>o mesmo botão, com <kbd>Shift</kbd> ou <kbd>Ctrl</kbd></td></tr>
-    <tr><td>Voltar um ciclo</td><td><kbd>Shift</kbd> + <kbd>←</kbd></td><td>o mesmo botão, com <kbd>Shift</kbd> ou <kbd>Ctrl</kbd></td></tr>
+    <tr><td>Avançar um passo</td><td><kbd>→</kbd></td><td>botão logo à direita do contador</td></tr>
+    <tr><td>Voltar um passo</td><td><kbd>←</kbd></td><td>botão logo à esquerda do contador</td></tr>
+    <tr><td>Avançar um ciclo</td><td><kbd>Ctrl</kbd> + <kbd>→</kbd></td><td>o mesmo botão, com <kbd>Ctrl</kbd></td></tr>
+    <tr><td>Voltar um ciclo</td><td><kbd>Ctrl</kbd> + <kbd>←</kbd></td><td>o mesmo botão, com <kbd>Ctrl</kbd></td></tr>
     <tr><td>Ir para o início</td><td><kbd>Home</kbd></td><td>primeiro botão</td></tr>
     <tr><td>Ir para o fim</td><td><kbd>End</kbd></td><td>último botão</td></tr>
     <tr><td>Executar (no editor)</td><td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td><td>Executar</td></tr>
