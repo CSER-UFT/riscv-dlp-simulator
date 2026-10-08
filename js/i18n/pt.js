@@ -297,6 +297,8 @@ export default {
     'ui.initialState': 'Estado inicial. Avance com a seta para a direita.',
     'ui.finished': 'Fim da execução: {n} instruções em {cycles} ciclos (IPC {ipc}).',
     'ui.endOfCycle': 'Fim do ciclo {n}.',
+    'ui.cycleSummary': 'Fim do ciclo {n}. Neste ciclo:',
+    'ui.cycleEmpty': 'Fim do ciclo {n}: nenhum acontecimento novo; as instruções em andamento continuam onde estavam.',
     'ui.registers': 'Registradores escalares',
     'ui.value': 'Valor',
     'ui.memory': 'Memória',

@@ -271,6 +271,15 @@ tabManager.addEventListener('tab-unset', () => {
     setButtons(null);
 });
 
+// Fim de ciclo: em vez de só "Fim do ciclo N", resume o que aconteceu no ciclo (útil ao avançar com Ctrl + seta,
+// que pula direto para o fim do ciclo).
+const CLOSING = /^(Fim do ciclo|End of cycle)\.$/;
+function cycleSummary(sim, n) {
+    const msgs = (sim.interStates[n] ?? []).map(([m]) => m).filter((m) => m && !CLOSING.test(m));
+    if (!msgs.length) return t('ui.cycleEmpty', { n });
+    return `${t('ui.cycleSummary', { n })}<br>${msgs.map((m) => `• ${m}`).join('<br>')}`;
+}
+
 tabManager.addEventListener('tab-set', () => {
     const c = tabManager.currentContents();
     if (c === null) return;
@@ -299,6 +308,7 @@ tabManager.addEventListener('tab-set', () => {
     let message;
     if (numInterStates[curState] > 0 && curInterState < numInterStates[curState]) {
         [message] = sim.interStates[curState][curInterState];
+        if (CLOSING.test(message)) message = cycleSummary(sim, curState);
     } else if (curState === 0) {
         message = t('ui.initialState');
     } else if (curState === sim.states.length - 1) {
@@ -306,7 +316,7 @@ tabManager.addEventListener('tab-set', () => {
             ? t('ui.finished', { n: sim.stats.instructions, cycles: sim.stats.cycles, ipc: sim.stats.ipc.toFixed(2) })
             : sim.warnings.join(' ');
     } else {
-        message = t('ui.endOfCycle', { n: curState });
+        message = cycleSummary(sim, curState);
     }
 
     viewport.show();

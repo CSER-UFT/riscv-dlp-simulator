@@ -45,7 +45,7 @@ export default {
             id: 'controls',
             title: 'Navigation and shortcuts',
             html: `
-<p>Each cycle is split into <strong>steps</strong>, one for each relevant event (an issue, a stall, the write of a group of elements). Moving one step shows the next event; moving one cycle jumps to the end of the next cycle.</p>
+<p>Each cycle is split into <strong>steps</strong>, one for each relevant event (an issue, a stall, the write of a group of elements). Moving one step shows the next event; moving one cycle jumps to the end of the next cycle, and the message lists everything that happened in that cycle.</p>
 <table>
     <tr><th>Action</th><th>Keyboard</th><th>Button</th></tr>
     <tr><td>Forward one step</td><td><kbd>→</kbd></td><td>button right after the counter</td></tr>

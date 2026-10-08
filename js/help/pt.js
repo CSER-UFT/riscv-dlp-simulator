@@ -46,7 +46,7 @@ export default {
             id: 'controls',
             title: 'Navegação e atalhos',
             html: `
-<p>Cada ciclo é dividido em <strong>passos</strong>, um para cada acontecimento relevante (uma emissão, uma parada, a escrita de um grupo de elementos). Avançar um passo mostra o próximo acontecimento; avançar um ciclo pula para o fim do ciclo seguinte.</p>
+<p>Cada ciclo é dividido em <strong>passos</strong>, um para cada acontecimento relevante (uma emissão, uma parada, a escrita de um grupo de elementos). Avançar um passo mostra o próximo acontecimento; avançar um ciclo pula para o fim do ciclo seguinte, e a mensagem lista tudo o que aconteceu nesse ciclo.</p>
 <table>
     <tr><th>Ação</th><th>Teclado</th><th>Botão</th></tr>
     <tr><td>Avançar um passo</td><td><kbd>→</kbd></td><td>botão logo à direita do contador</td></tr>
