@@ -136,15 +136,22 @@ export class Editor {
         let out = '';
         for (let i = 1; i <= n; i++)
             out += this.errorLines.has(i) ? `<span class="err">${i}</span>\n` : `${i}\n`;
-        this.gutter.innerHTML = out;
-        this.hl.innerHTML = highlight(this.code.value, this.errorLines);
+        // O conteúdo vai num bloco interno, deslocado por transform (ver syncScroll).
+        this.gutter.innerHTML = `<div class="code-inner">${out}</div>`;
+        this.hl.innerHTML = `<div class="code-inner">${highlight(this.code.value, this.errorLines)}</div>`;
         this.syncScroll();
     }
 
+    /**
+     * Acompanha a rolagem do textarea. O destaque e a numeração são deslocados por transform, e não por
+     * scrollTop/scrollLeft: o textarea tem barras de rolagem e o <pre> não, então a rolagem máxima do <pre>
+     * é menor (a largura da barra) e, no fim de linhas longas ou do texto, o cursor ficava deslocado.
+     */
     syncScroll() {
-        this.gutter.scrollTop = this.code.scrollTop;
-        this.hl.scrollTop = this.code.scrollTop;
-        this.hl.scrollLeft = this.code.scrollLeft;
+        const x = this.code.scrollLeft, y = this.code.scrollTop;
+        const g = this.gutter.firstElementChild, h = this.hl.firstElementChild;
+        if (g) g.style.transform = `translateY(${-y}px)`;
+        if (h) h.style.transform = `translate(${-x}px, ${-y}px)`;
     }
 
     /** Exibe erros; cada erro é uma string ou um objeto {line, message}. */
